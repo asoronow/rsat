@@ -3,14 +3,11 @@ import os
 import pickle
 from pathlib import Path
 import matplotlib.pyplot as plt
-from scipy.ndimage import rotate
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-from skimage.measure import marching_cubes
-
+from scipy.stats import mode
+import cv2
 class ROI:
     """
     ROI Object
-
     """
 
     def __init__(self, name, intensity, filename, coverage=None):
@@ -132,11 +129,21 @@ def loadROI(path):
 
 if __name__ == "__main__":
     roi_path = Path("samples")
-    rois = loadROI(str(roi_path))
+    rois = list(loadROI(str(roi_path)))
     num_rois = roi_path.rglob("*.pkl")
 
     binary_images = []
-    all_rois = []
+    compare_images = []
+    all_values = []
+    fig, ax = plt.subplots(4, 3, figsize=(12, 8))
+
+    for roi in rois:
+        all_values.extend(list(roi.intensity.values()))
+
+    all_values = np.array(all_values)
+    all_values = all_values[all_values > 0]
+
+    threshold = mode(all_values, axis=None)[0][0]
     for roi in rois:
         verts = list(roi.intensity.keys())
 
@@ -146,41 +153,45 @@ if __name__ == "__main__":
         min_y = min(vert[0] for vert in verts)
         max_y = max(vert[0] for vert in verts)
 
-        # Create a 2D array based on the bounding box dimensions
-        img = np.zeros((max_x - min_x + 1, max_y - min_y + 1), dtype=np.uint16)
-        for point, value in roi.intensity.items():
-            img[point[1] - min_x, point[0] - min_y] = value
+        # Create a image of the ROI
+        image = np.zeros((max_x - min_x + 1, max_y - min_y + 1), dtype=np.uint16)
+        for vert in verts:
+            image[vert[1] - min_x, vert[0] - min_y] = roi.intensity[vert]
+
+        compare_images.append(cv2.resize(image, (512, 512)))
+        # Cvt to 8 bit
+        max_value = np.max(image)
+        min_value = np.min(image)
+        image = ((image - min_value) / (max_value - min_value) * 255).astype(np.uint8)
+        # Threshold
+        binary_mask = np.zeros_like(image)
+        binary_mask[image < threshold] = 0
+        binary_mask[image >= threshold] = 255
+
+        # Convert original image to color
+        color_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        color_image[binary_mask == 255] = [193, 100, 255]
         
-        # Threshold the image
-        binary_img = (img > 200).astype(np.uint8)
-        binary_images.append(binary_img)
+        # resize the image to 256x256
+        color_image = cv2.resize(color_image, (512, 512))
+        binary_images.append(color_image)
+
+    # side by side compare and binary images
+    for i in range(4):
+        ax[i, 0].imshow(compare_images[i], cmap="gray")
+        ax[i, 0].set_title("Original")
+        ax[i, 0].axis("off")
+        ax[i, 1].imshow(binary_images[i], cmap="gray")
+        ax[i, 1].axis("off")
+        ax[i, 1].set_title("Binary")
+        ax[i, 2].hist(compare_images[i].ravel(), bins=256, range=(0, 255))
+        ax[i, 2].set_xscale("log")
+        ax[i, 2].set_yscale("log")
+        # Add vertical line on each histogram to show threshold
+        ax[i, 2].axvline(threshold, color="r", linestyle="dashed", linewidth=1)
+        ax[i, 2].set_title("Histogram")
 
 
-    # Find the largest image
-    max_shape = np.max([img.shape for img in binary_images], axis=0)
-    # Pad all images to the same size
-    for i in range(len(binary_images)):
-        binary_images[i] = np.pad(
-            binary_images[i],
-            (
-                (0, max_shape[0] - binary_images[i].shape[0]),
-                (0, max_shape[1] - binary_images[i].shape[1]),
-            ),
-            "constant",
-            constant_values=0,
-        )
-    # Create the 3D reconstruction
-    volume = np.stack(binary_images, axis=2)
-
-    # Visualize the 3D reconstruction using marching cubes and matplotlib
-    fig = plt.figure(figsize=(10, 10))
-    ax = fig.add_subplot(111, projection='3d')
-
-    # Extract surfaces using marching cubes
-    verts, faces, _, _ = marching_cubes(volume)
-
-    # Create a mesh to visualize the 3D structure
-    mesh = Poly3DCollection(verts[faces], alpha=0.5)
-    ax.add_collection3d(mesh)
-
+    plt.tight_layout()
     plt.show()
+
