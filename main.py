@@ -3,8 +3,14 @@ import os
 import pickle
 from pathlib import Path
 import matplotlib.pyplot as plt
-from scipy.stats import mode
+from skimage.feature import hessian_matrix, hessian_matrix_eigvals
+from skimage.segmentation import clear_border
+from skimage.morphology import binary_closing, binary_dilation, closing, rectangle
+from skimage import measure, transform
+from skimage.filters import gaussian
 import cv2
+
+
 class ROI:
     """
     ROI Object
@@ -129,21 +135,13 @@ def loadROI(path):
 
 if __name__ == "__main__":
     roi_path = Path("samples")
-    rois = list(loadROI(str(roi_path)))
+    rois = loadROI(str(roi_path))
     num_rois = roi_path.rglob("*.pkl")
 
     binary_images = []
     compare_images = []
     all_values = []
-    fig, ax = plt.subplots(4, 3, figsize=(12, 8))
-
-    for roi in rois:
-        all_values.extend(list(roi.intensity.values()))
-
-    all_values = np.array(all_values)
-    all_values = all_values[all_values > 0]
-
-    threshold = mode(all_values, axis=None)[0][0]
+    c = 0
     for roi in rois:
         verts = list(roi.intensity.keys())
 
@@ -158,26 +156,47 @@ if __name__ == "__main__":
         for vert in verts:
             image[vert[1] - min_x, vert[0] - min_y] = roi.intensity[vert]
 
-        compare_images.append(cv2.resize(image, (512, 512)))
-        # Cvt to 8 bit
-        max_value = np.max(image)
-        min_value = np.min(image)
-        image = ((image - min_value) / (max_value - min_value) * 255).astype(np.uint8)
-        # Threshold
-        binary_mask = np.zeros_like(image)
-        binary_mask[image < threshold] = 0
-        binary_mask[image >= threshold] = 255
+        h_matrix = hessian_matrix(
+            image,
+            sigma=3,
+            use_gaussian_derivatives=True,
+        )
+        i1, i2 = hessian_matrix_eigvals(h_matrix)
+        determinant = i1 * i2
+        threshold = np.percentile(determinant, 95)
+        mask = determinant > threshold
+        mask = binary_dilation(mask, footprint=np.ones((5, 5)))
+        mask = binary_closing(mask, footprint=np.ones((5, 5)))
+        mask = closing(mask, rectangle(1, 5))
+        mask = closing(mask, rectangle(5, 1))
+        mask = clear_border(mask)
 
-        # Convert original image to color
-        color_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-        color_image[binary_mask == 255] = [193, 100, 255]
-        
-        # resize the image to 256x256
-        color_image = cv2.resize(color_image, (512, 512))
-        binary_images.append(color_image)
+        min_area = 200
+        label_image = measure.label(mask)
+        filtered_mask = np.zeros_like(mask, dtype=bool)
+        for region in measure.regionprops(label_image):
+            if region.area >= min_area:
+                filtered_mask = filtered_mask | (label_image == region.label)
+
+        cv2.imwrite(
+            f"masks/{roi.name}_{c}.png",
+            (filtered_mask * 255).astype(np.uint8),
+        )
+        cv2.imwrite(
+            f"images/{roi.name}_{c}.png",
+            image * 255,
+        )
+        c += 1
+        # resize
+        filtered_mask = transform.resize(filtered_mask, (1024, 1024))
+        image = transform.resize(image, (1024, 1024))
+
+        binary_images.append(filtered_mask)
+        compare_images.append(image)
 
     # side by side compare and binary images
-    for i in range(4):
+    fig, ax = plt.subplots(6, 3, figsize=(12, 8))
+    for i in range(6):
         ax[i, 0].imshow(compare_images[i], cmap="gray")
         ax[i, 0].set_title("Original")
         ax[i, 0].axis("off")
@@ -185,13 +204,8 @@ if __name__ == "__main__":
         ax[i, 1].axis("off")
         ax[i, 1].set_title("Binary")
         ax[i, 2].hist(compare_images[i].ravel(), bins=256, range=(0, 255))
-        ax[i, 2].set_xscale("log")
-        ax[i, 2].set_yscale("log")
         # Add vertical line on each histogram to show threshold
-        ax[i, 2].axvline(threshold, color="r", linestyle="dashed", linewidth=1)
         ax[i, 2].set_title("Histogram")
-
 
     plt.tight_layout()
     plt.show()
-
