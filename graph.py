@@ -1,41 +1,28 @@
 import numpy as np
-import os, pathlib
+import os
+from pathlib import Path
 import pickle
 import argparse
 import matplotlib.pyplot as plt
 from main import ROI, loadROI
-import concurrent.futures
 
-NUM_WORKERS = 4
-
-def plotVerticalLine(experiments):
+def plotVerticalLine(experiments, output_path):
     """
     Creates vertical line plots based of the average intensity of each coordinate
     in an ROI across all brains in an age group.
     """
 
-    # save raw experiments as a pickle file
-    with open(pathlib.Path(args.output.strip(), "raw_experiments.pkl"), "wb") as f:
-        pickle.dump(experiments, f)
-    
-    meanGrids = {}
-    stderrorGrids = {}
-
+    all_animals = {}
     # Initialize meanGrids and stderrorGrids with zero arrays
-    for brain in experiments.keys():
-        for roi in experiments[brain].keys():
-            if roi not in meanGrids:
-                meanGrids[roi] = np.zeros((101, 101))
-                stderrorGrids[roi] = np.zeros((101, 101))
+    for age_group in experiments.keys():
+        for animal in experiments[age_group].keys():
+            for roi in experiments[age_group][animal].keys():
+                # make a 3d array of all the grids
+                if roi not in all_animals:
+                    all_animals[roi] = []
+                all_animals[roi].append(np.array(experiments[age_group][animal][roi]))
 
-    # Populate meanGrids and stderrorGrids
-    for brain, rois in experiments.items():
-        for roi, coords in rois.items():
-            for (i, j), values in coords.items():
-                meanGrids[roi][i, j] = np.mean(values)
-                stderrorGrids[roi][i, j] = np.std(values) / np.sqrt(len(values))
-
-
+    # Make the normalized grids and stderror grids
     print("Plotting vertical line plots...")
 
     roi_layout = [
@@ -51,46 +38,80 @@ def plotVerticalLine(experiments):
     for row_idx, row in enumerate(roi_layout):
         for col_idx, roi in enumerate(row):
             if roi:
-                roi_key = roi.lower()
-                if roi_key not in list(meanGrids.keys()):
-                    meanGrids[roi_key] = np.zeros((101, 101))
-
                 ax = axes[row_idx, col_idx]
 
                 ax.set_title(roi)
-                ax.set_xlabel("Axon coverage (%)")
+                ax.set_xlabel("Axon coverage (A.U.)")
                 ax.set_ylabel("Depth from pial surface (A.U.)")
                 ax.set_ylim(0, 100)
                 ax.set_xlim(0, 1)
-
                 ax.set_yticks([0, 100])
                 ax.set_yticklabels([1, 0])
+                roi_key = roi.lower()
 
-                fraction_mean_rows = np.mean(meanGrids[roi_key], axis=1)
-                fraction_stderror = np.mean(stderrorGrids[roi_key], axis=1)
+                if roi_key not in all_animals:
+                    roi_data = np.zeros((101))
+                else:
+                    roi_data = all_animals[roi_key]
+                    normal_data = np.zeros((len(roi_data), 101))
+                    for i, grid in enumerate(roi_data):
+                        # Sum project the grids
+                        sum_projected = np.sum(grid, axis=0)
+                        # Sum each row
+                        sum_projected = np.sum(sum_projected, axis=1)
+                        # Normalize
+                        sum_projected /= np.max(sum_projected)
+                        normal_data[i] = sum_projected
 
-                ax.barh(
-                    np.arange(0, 101, 1),
-                    fraction_mean_rows,
-                    color="red",
-                    alpha=0.5,
-                    xerr=fraction_stderror  # adding error bars
-                )
+                    std_dev = np.std(normal_data, axis=0)
+                    std_error = std_dev / np.sqrt(len(roi_data))
+                    mean_data = np.mean(normal_data, axis=0)
+                    # Plot the mean grid
+                    ax.barh(
+                        np.arange(101),
+                        mean_data,
+                        color="red",
+                    )
+
+                    # Plot the standard error
+                    ax.fill_betweenx(
+                        np.arange(101),
+                        mean_data - std_error,
+                        mean_data + std_error,
+                        color="black",
+                        alpha=0.3,
+                    )
 
 
             else:
                 fig.delaxes(axes[row_idx, col_idx])
 
     plt.tight_layout()
-
     plt.savefig(
-        pathlib.Path(args.output.strip(), "combined_roi_plot.svg"),
+        output_path / f"combined_{age_group}.svg",
         format="svg",
         dpi=600,
         transparent=True,
     )
 
+def process_ROI(roi, coordinateNorms):
+    roi_name = roi.name.lower()
+
+    if roi_name not in coordinateNorms:
+        coordinateNorms[roi_name] = []
+
+    min_x = np.min([i for i, j in roi.intensity.keys()])
+    min_y = np.min([j for i, j in roi.intensity.keys()])
     
+    # Temporary grid for the current ROI slice
+    grid = np.zeros((101, 101))
+    
+    for i, j in roi.intensity.keys():
+        l_x = min(i - min_x, roi.mask.shape[0] - 1)
+        l_y = min(j - min_y, roi.mask.shape[1] - 1)
+        grid[i, j] = roi.mask[l_x, l_y]
+        
+    coordinateNorms[roi_name].append(grid)
 
 if __name__ == "__main__":
     """
@@ -114,7 +135,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process some ROIs.")
     parser.add_argument("--input", type=str, help="Input ROI pkl file or directory")
     parser.add_argument("--output", type=str, help="Output directory")
-    parser.add_argument("--regraph", action="store_true", help="Regraph the data from the raw experiments")
+    parser.add_argument("--regraph", action="store_true", help="Regraph the data from the raw experiments", default=False)
     args = parser.parse_args()
 
 
@@ -132,68 +153,59 @@ if __name__ == "__main__":
     elif not os.path.isdir(args.output):
         raise Exception("Output is not a directory")
 
+    input_path = Path(args.input)
+    output_path = Path(args.output)
+
     if args.regraph:
         # find the experiments pkl
         experiments_pkl = None
-        with open("raw_experiments.pkl", "rb") as f:
+        with open(input_path / f"raw_experiments_{input_path.stem}.pkl", "rb") as f:
             experiments_pkl = pickle.load(f)
-
-        print(experiments_pkl)
-
+        plotVerticalLine(experiments_pkl, output_path)
         quit()
 
-    # Get subdirectories from input
+       # Get subdirectories from input
     subs_dirs = [
-        os.path.join(args.input, sub_dir)
-        for sub_dir in os.listdir(args.input)
-        if os.path.isdir(os.path.join(args.input, sub_dir))
+        input_path / sub_dir
+        for sub_dir in os.listdir(input_path)
+        if os.path.isdir(input_path / sub_dir)
     ]
-    # Create a dictory of experiments which is just the subdirectories
-    experiments = {os.path.basename(sub_dir): sub_dir for sub_dir in subs_dirs}
-    num_rois = sum(
-    [
+    experiments = {
+        input_path.stem: {}
+    }
+    num_rois = sum([
         len([file for file in os.listdir(sub_dir) if file.endswith(".pkl")])
         for sub_dir in subs_dirs
-    ]
-    )
+    ])
+    
     c = 0
     for exp_dir in subs_dirs:
+        animal_name = os.path.basename(exp_dir)
         coordinateNorms = {}
-        outputGrids = {}
-        errorGrids = {}
+        
         for roi in loadROI(exp_dir):
             if roi is None:
                 print("No ROIs found, exiting...")
                 break
 
-            # run preprocessing on the ROI
+            # Run preprocessing on the ROI
             try:
                 print(f"Preprocessing {roi.filename} [{c + 1}/{num_rois}]")
                 roi.normalize()
                 roi.create_axon_mask()
-            except:
-                print("Error processing ROI: {}".format(roi.filename))
+                process_ROI(roi, coordinateNorms)
+            except Exception as e:
+                print(f"Error processing ROI: {roi.filename}. Error: {str(e)}")
                 continue
-
-            roi_name = roi.name.lower()
-
-            if not roi_name in list(coordinateNorms.keys()):
-                coordinateNorms[roi_name] = {}
-
-            min_x = np.min([i for i, j in roi.intensity.keys()])
-            min_y = np.min([j for i, j in roi.intensity.keys()])
-            # parse over the normalized coordinates adding the intensity valeus to the dictionary
-            for i, j in roi.intensity.keys():
-                # rescale the coordinates to the mask
-
-                if (i, j) not in coordinateNorms[roi_name]:
-                    coordinateNorms[roi_name][(i, j)] = []
-
-                l_x = min(i - min_x, roi.mask.shape[0] - 1)
-                l_y = min(j - min_y, roi.mask.shape[1] - 1)
-                coordinateNorms[roi_name][(i, j)].append(roi.mask[l_x, l_y])
+            
             c += 1
 
-        experiments[os.path.basename(exp_dir)] = coordinateNorms
+        # Add to experiments dict under age group (args.input) and animal name
+        experiments[os.path.basename(args.input)][animal_name] = coordinateNorms
     
-    plotVerticalLine(experiments)
+    if not args.regraph:
+        # save raw experiments as a pickle file
+        with open(Path(args.output.strip(), f"raw_experiments_{os.path.basename(args.input)}.pkl"), "wb") as f:
+            pickle.dump(experiments, f)
+
+    plotVerticalLine(experiments, output_path)
