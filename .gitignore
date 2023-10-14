@@ -2,3 +2,6 @@ samples
 models
 images
 masks
+__pycache__
+*.pkl
+*.svg

@@ -10,10 +10,10 @@ from skimage import img_as_float64
 from skimage.filters import gaussian, laplace
 
 
-
 class ROI:
     """
     ROI Object
+
     """
 
     def __init__(self, name, intensity, filename, coverage=None):
@@ -21,6 +21,7 @@ class ROI:
         self.intensity = intensity
         self.filename = filename
         self.coverage = coverage
+        self.mask = None
 
     def mean(self):
         # find the mean intensity value
@@ -41,16 +42,11 @@ class ROI:
                 np.floor(float(self.intensity[(i, j)]) * self.coverage)
             )
 
-    def outliers(self):
-        values = list(self.intensity.values())
-
-        # Determine the thresholds based on percentiles
-        lower_threshold = 200
-
+    def outliers(self, top=4000, bottom=0):
         # Keep only values between the lower and upper threshold and set zero elsewhere
         filtered_intensity = {}
         for i, j in self.intensity.keys():
-            if self.intensity[(i, j)] >= lower_threshold:
+            if self.intensity[(i, j)] <= top and self.intensity[(i, j)] >= bottom:
                 filtered_intensity[(i, j)] = self.intensity[(i, j)]
             else:
                 filtered_intensity[(i, j)] = 0
@@ -73,27 +69,43 @@ class ROI:
         return bounds, width, height
 
     def normalize(self):
-        # normalize the intensity keys to 0-100
-        keys = self.intensity.keys()
-        # get the max and min values of both x and y
-        max_x = np.max([i for i, j in keys])
-        min_x = np.min([i for i, j in keys])
-        max_y = np.max([j for i, j in keys])
-        min_y = np.min([j for i, j in keys])
-        # normalize the x , y and z values
-        remapped = {}
-        values = []
-        for i, j in keys:
-            remapped[
-                (
-                    int((i - min_x) / (max_x - min_x) * 100),
-                    int((j - min_y) / (max_y - min_y) * 100),
-                )
-            ] = self.intensity[(i, j)]
-            values.append(self.intensity[(i, j)])
+        """Normalize the coordinates of the ROI and Mask to 0-100"""
+        # Convert keys to numpy array for efficient computation
+        keys_array = np.array(list(self.intensity.keys()))
+        max_coords = keys_array.max(axis=0)
+        min_coords = keys_array.min(axis=0)
+        
+        # Compute normalized values
+        normalized_keys = ((keys_array - min_coords) / (max_coords - min_coords) * 100).astype(int)
+        self.intensity = {(i, j): self.intensity[(x, y)] for (i, j), (x, y) in zip(normalized_keys, keys_array)}
 
-        self.intensity = remapped
+    def create_axon_mask(self):
+        """Identify axons in the ROI"""
 
+        verts = list(self.intensity.keys())
+
+        # Find the bounding box for the ROI
+        min_x = min(vert[1] for vert in verts)
+        max_x = max(vert[1] for vert in verts)
+        min_y = min(vert[0] for vert in verts)
+        max_y = max(vert[0] for vert in verts)
+
+        # Create a image of the ROI
+        image = np.zeros((max_x - min_x + 1, max_y - min_y + 1), dtype=np.uint16)
+        for vert in verts:
+            image[vert[1] - min_x, vert[0] - min_y] = self.intensity[vert]
+
+        masked_image = np.ma.masked_where(image == 0, image)
+        image = img_as_float64(masked_image)
+        log_image = laplace(gaussian(image, sigma=2))
+        log_abs = np.abs(log_image)
+        thresh = threshold_otsu(log_abs)
+        binary = log_abs > thresh
+        binary = clear_border(binary)
+        # binary = remove_small_holes(binary, 1000, connectivity=2)
+
+        binary_uint8 = (binary * 255).astype(np.uint8)
+        self.mask = binary_uint8
 
 def loadROI(path):
     """
