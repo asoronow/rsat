@@ -4,7 +4,9 @@ from pathlib import Path
 import pickle
 import argparse
 import matplotlib.pyplot as plt
+from scipy.stats import kruskal
 from main import ROI, loadROI
+
 
 def plotVerticalLine(experiments, output_path):
     """
@@ -20,6 +22,7 @@ def plotVerticalLine(experiments, output_path):
                 # make a 3d array of all the grids
                 if roi not in all_animals:
                     all_animals[roi] = []
+                # convert samples to arrays
                 all_animals[roi].append(np.array(experiments[age_group][animal][roi]))
 
     # Make the normalized grids and stderror grids
@@ -54,34 +57,33 @@ def plotVerticalLine(experiments, output_path):
                 else:
                     roi_data = all_animals[roi_key]
                     normal_data = np.zeros((len(roi_data), 101))
-                    for i, grid in enumerate(roi_data):
+                    for i, cube in enumerate(roi_data):
                         # Sum project the grids
-                        sum_projected = np.sum(grid, axis=0)
-                        # Sum each row
-                        sum_projected = np.sum(sum_projected, axis=1)
+                        sum_projected = np.sum(cube, axis=0)
+                        sum_projected = np.sum(sum_projected, axis=0)
                         # Normalize
                         sum_projected /= np.max(sum_projected)
+                        # Set all nans to 0
+                        sum_projected = np.nan_to_num(sum_projected)
                         normal_data[i] = sum_projected
 
-                    std_dev = np.std(normal_data, axis=0)
-                    std_error = std_dev / np.sqrt(len(roi_data))
                     mean_data = np.mean(normal_data, axis=0)
-                    # Plot the mean grid
+                    std_err = np.std(normal_data, axis=0) / np.sqrt(
+                        normal_data.shape[0]
+                    )
                     ax.barh(
                         np.arange(101),
                         mean_data,
                         color="red",
                     )
-
                     # Plot the standard error
                     ax.fill_betweenx(
                         np.arange(101),
-                        mean_data - std_error,
-                        mean_data + std_error,
+                        mean_data - std_err,
+                        mean_data + std_err,
                         color="black",
                         alpha=0.3,
                     )
-
 
             else:
                 fig.delaxes(axes[row_idx, col_idx])
@@ -94,6 +96,7 @@ def plotVerticalLine(experiments, output_path):
         transparent=True,
     )
 
+
 def process_ROI(roi, coordinateNorms):
     roi_name = roi.name.lower()
 
@@ -102,16 +105,17 @@ def process_ROI(roi, coordinateNorms):
 
     min_x = np.min([i for i, j in roi.intensity.keys()])
     min_y = np.min([j for i, j in roi.intensity.keys()])
-    
+
     # Temporary grid for the current ROI slice
     grid = np.zeros((101, 101))
-    
+
     for i, j in roi.intensity.keys():
         l_x = min(i - min_x, roi.mask.shape[0] - 1)
         l_y = min(j - min_y, roi.mask.shape[1] - 1)
         grid[i, j] = roi.mask[l_x, l_y]
-        
+
     coordinateNorms[roi_name].append(grid)
+
 
 if __name__ == "__main__":
     """
@@ -135,9 +139,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process some ROIs.")
     parser.add_argument("--input", type=str, help="Input ROI pkl file or directory")
     parser.add_argument("--output", type=str, help="Output directory")
-    parser.add_argument("--regraph", action="store_true", help="Regraph the data from the raw experiments", default=False)
+    parser.add_argument(
+        "--regraph",
+        action="store_true",
+        help="Regraph the data from the raw experiments",
+        default=False,
+    )
     args = parser.parse_args()
-
 
     if args.input == None:
         raise Exception("No input directory provided")
@@ -164,25 +172,25 @@ if __name__ == "__main__":
         plotVerticalLine(experiments_pkl, output_path)
         quit()
 
-       # Get subdirectories from input
+    # Get subdirectories from input
     subs_dirs = [
         input_path / sub_dir
         for sub_dir in os.listdir(input_path)
         if os.path.isdir(input_path / sub_dir)
     ]
-    experiments = {
-        input_path.stem: {}
-    }
-    num_rois = sum([
-        len([file for file in os.listdir(sub_dir) if file.endswith(".pkl")])
-        for sub_dir in subs_dirs
-    ])
-    
+    experiments = {input_path.stem: {}}
+    num_rois = sum(
+        [
+            len([file for file in os.listdir(sub_dir) if file.endswith(".pkl")])
+            for sub_dir in subs_dirs
+        ]
+    )
+
     c = 0
     for exp_dir in subs_dirs:
         animal_name = os.path.basename(exp_dir)
         coordinateNorms = {}
-        
+
         for roi in loadROI(exp_dir):
             if roi is None:
                 print("No ROIs found, exiting...")
@@ -197,15 +205,21 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"Error processing ROI: {roi.filename}. Error: {str(e)}")
                 continue
-            
+
             c += 1
 
         # Add to experiments dict under age group (args.input) and animal name
         experiments[os.path.basename(args.input)][animal_name] = coordinateNorms
-    
+
     if not args.regraph:
         # save raw experiments as a pickle file
-        with open(Path(args.output.strip(), f"raw_experiments_{os.path.basename(args.input)}.pkl"), "wb") as f:
+        with open(
+            Path(
+                args.output.strip(),
+                f"raw_experiments_{os.path.basename(args.input)}.pkl",
+            ),
+            "wb",
+        ) as f:
             pickle.dump(experiments, f)
 
     plotVerticalLine(experiments, output_path)
