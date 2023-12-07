@@ -5,3 +5,4 @@ masks
 __pycache__
 *.pkl
 *.svg
+.DS_Store

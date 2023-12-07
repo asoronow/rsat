@@ -29,7 +29,7 @@ def plotVerticalLine(experiments, output_path):
     print("Plotting vertical line plots...")
 
     roi_layout = [
-        ["TEa", "VISal", "VISrl", "VISa", "RSPagl"],
+        [None, "VISal", "VISrl", "VISa", "RSPagl"],
         ["VISli", "VISl", None, "VISam", "RSPd"],
         ["VISpor", "VISpl", None, "VISpm", "RSPv"],
     ]
@@ -199,8 +199,9 @@ if __name__ == "__main__":
             # Run preprocessing on the ROI
             try:
                 print(f"Preprocessing {roi.filename} [{c + 1}/{num_rois}]")
-                roi.normalize()
                 roi.create_axon_mask()
+                roi.normalize()
+
                 process_ROI(roi, coordinateNorms)
             except Exception as e:
                 print(f"Error processing ROI: {roi.filename}. Error: {str(e)}")
