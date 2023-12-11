@@ -104,7 +104,8 @@ class ROI:
             y, x = vert[0] - min_y, vert[1] - min_x
             image[y, x] = self.intensity[vert]
             mask[y, x] = 1
-
+        
+        # cv2.imwrite(f"image_{self.name}_original.png", image)
         # Edge detection
         smooth = gaussian(image, sigma=1)
         edges = laplace(smooth)
@@ -114,13 +115,11 @@ class ROI:
         # Create binary image
         binary = edges > thresh
         binary = clear_border(binary)
-        # Remove small objects
-        binary = remove_small_objects(binary, min_size=10)
 
         # Find the range of x and y coordinates
         x_range = max_x - min_x
         y_range = max_y - min_y
-
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
         # Normalize the coordinates to fit into a 101x101 grid
         normalized_mask = np.zeros((101, 101), dtype=np.uint8)
         for vert in verts:
@@ -128,10 +127,12 @@ class ROI:
             normalized_mask[int(y / y_range * 100), int(x / x_range * 100)] = (
                 1 if (binary[y, x] == 1) else 0
             )
+            image[y, x] = (0, 0, 255) if (binary[y, x] == 1) else (0, 255, 0)
 
         # Convert to uint8 and save
+        # cv2.imwrite(f"image_{self.name}_colorized.png", image)
         binary_uint8 = (normalized_mask * 255).astype(np.uint8)
-        cv2.imwrite(f"normalized_binary_{self.name}.png", binary_uint8)
+        # cv2.imwrite(f"normalized_binary_{self.name}.png", binary_uint8)
         self.mask = binary_uint8
 
 

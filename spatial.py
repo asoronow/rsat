@@ -77,7 +77,7 @@ class AxonDataClustering:
         self.medial_lateral_map = {
             "tea": "lateral",
             "visal": "lateral",
-            "visrl": "lateral",
+            "visrl": "medial",
             "visa": "medial",
             "rspagl": "medial",
             "visli": "lateral",
@@ -93,8 +93,8 @@ class AxonDataClustering:
 
         self.dorsal_ventral_map = {
             "tea": "dorsal",
-            "visal": "ventral",
-            "visrl": "ventral",
+            "visal": "dorsal",
+            "visrl": "dorsal",
             "visa": "dorsal",
             "rspagl": "dorsal",
             "visli": "ventral",
@@ -111,7 +111,7 @@ class AxonDataClustering:
     def prepare_data_all(self):
         for animal in self.animals:
             for roi, data in animal.rois.items():
-                if roi == "visp":
+                if roi == "visp" or roi == "str":
                     continue
                 self.all_data.append(data)  # Appending the ROI data
 
@@ -133,10 +133,15 @@ class AxonDataClustering:
         for animal in self.animals:
             whole_brain = []
             for roi, data in animal.rois.items():
-                if roi == "visp":
+                if roi == "visp" or roi == "str":
                     continue
                 whole_brain.append(data.reshape(-1))  # Flattening the data array
-            concatenated = np.concatenate(whole_brain)
+            if len(whole_brain) == 0:
+                continue
+            elif len(whole_brain) == 1:
+                concatenated = whole_brain[0]
+            else:
+                concatenated = np.concatenate(whole_brain)
             if concatenated.size > max_length:
                 max_length = concatenated.size
             whole_brains.append(concatenated)  # Store for use in the next step
@@ -188,23 +193,31 @@ class AxonDataClustering:
             ]
             labels_in_cluster = [real_labels[i] for i in current_cluster_indices]
 
-            label_counts = {}
+            label_counts = {
+                label: 0 for label in set(real_labels)
+            }
             for label in labels_in_cluster:
-                if label in label_counts:
-                    label_counts[label] += 1
-                else:
-                    label_counts[label] = 1
-
+                label_counts[label] += 1
+            
             # Store the label counts dictionary in our cluster counts dictionary.
             cluster_counts[cluster_id] = label_counts
 
-        # Now, we determine the predominant label for each cluster.
-        cluster_labels = {}
-        for cluster_id, label_counts in cluster_counts.items():
-            # The label with the highest count is considered the predominant label for the cluster.
-            predominant_label = max(label_counts, key=label_counts.get)
-            cluster_labels[cluster_id] = predominant_label
 
+        cluster_labels = {}
+        for label in set(real_labels):
+            # sort clusters by label count
+            sorted_clusters = sorted(
+                cluster_counts.keys(), key=lambda x: cluster_counts[x][label], reverse=True
+            )
+
+            # assign the label to the cluster with the highest count
+            for cid in sorted_clusters:
+                if cid not in cluster_labels:
+                    cluster_labels[cid] = label
+                    break
+                else:
+                    continue
+                
         return cluster_labels
 
     def plot_umap_and_cm_age_only(self, predicted_labels):
@@ -229,7 +242,6 @@ class AxonDataClustering:
         cluster_labels_age = self.determine_cluster_labels(
             predicted_labels, self.roi_labels_age
         )
-
         age_predicted_labels = [cluster_labels_age[label] for label in predicted_labels]
         conf_mat_age = confusion_matrix(self.roi_labels_age, age_predicted_labels)
         sns.heatmap(
@@ -330,9 +342,14 @@ def main():
     old_data_path = (
         "old_data/raw_experiments_old_data.pkl"  # Adjust the path as necessary
     )
+    p3or4to7_path = Path(r"D:\VSV raw data\raw_experiments_p3or4to7.pkl")
+    p5to9_path = Path(r"D:\VSV raw data\raw_experiments_p5to9.pkl")
+    p3to7_path = Path(r"D:\VSV raw data\raw_experiments_p3to7.pkl")
+    # loader.load(p3to7_path, "p3to7")
+    # loader.load(old_data_path, "adult")
+    #loader.load(p3or4to7_path, "p3or4to7")
     loader.load(p3to7_path, "p3to7")
-    loader.load(old_data_path, "adult")
-
+    loader.load(p5to9_path, "p5to9")
     # Just animals
     clustering = AxonDataClustering(loader.animals)
     clustering.prepare_data_per_animal()

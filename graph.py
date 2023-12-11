@@ -6,7 +6,7 @@ import argparse
 import matplotlib.pyplot as plt
 from scipy.stats import kruskal
 from main import ROI, loadROI
-
+import cv2
 
 def plotVerticalLine(experiments, output_path):
     """
@@ -60,12 +60,15 @@ def plotVerticalLine(experiments, output_path):
                     for i, cube in enumerate(roi_data):
                         # Sum project the grids
                         sum_projected = np.sum(cube, axis=0)
+                        cv2.imwrite(f"{roi_key}_{i}.png", sum_projected)
                         sum_projected = np.sum(sum_projected, axis=0)
                         # Normalize
                         sum_projected /= np.max(sum_projected)
                         # Set all nans to 0
                         sum_projected = np.nan_to_num(sum_projected)
                         normal_data[i] = sum_projected
+
+                        
 
                     mean_data = np.mean(normal_data, axis=0)
                     std_err = np.std(normal_data, axis=0) / np.sqrt(
@@ -179,12 +182,7 @@ if __name__ == "__main__":
         if os.path.isdir(input_path / sub_dir)
     ]
     experiments = {input_path.stem: {}}
-    num_rois = sum(
-        [
-            len([file for file in os.listdir(sub_dir) if file.endswith(".pkl")])
-            for sub_dir in subs_dirs
-        ]
-    )
+    num_rois = len([x for x in Path(input_path).glob("**/*.pkl") if x.is_file()])
 
     c = 0
     for exp_dir in subs_dirs:
