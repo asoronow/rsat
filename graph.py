@@ -6,7 +6,9 @@ import argparse
 import matplotlib.pyplot as plt
 from scipy.stats import kruskal
 from main import ROI, loadROI
+import csv
 import cv2
+
 
 def plotVerticalLine(experiments, output_path):
     """
@@ -15,6 +17,7 @@ def plotVerticalLine(experiments, output_path):
     """
 
     all_animals = {}
+    sum_acitivity = {}
     # Initialize meanGrids and stderrorGrids with zero arrays
     for age_group in experiments.keys():
         for animal in experiments[age_group].keys():
@@ -58,17 +61,21 @@ def plotVerticalLine(experiments, output_path):
                     roi_data = all_animals[roi_key]
                     normal_data = np.zeros((len(roi_data), 101))
                     for i, cube in enumerate(roi_data):
+                        if sum_acitivity.get(f"Animal_{i}") is None:
+                            sum_acitivity[f"Animal_{i}"] = {}
                         # Sum project the grids
                         sum_projected = np.sum(cube, axis=0)
-                        cv2.imwrite(f"{roi_key}_{i}.png", sum_projected)
+                        # cv2.imwrite(f"{roi_key}_{i}.png", sum_projected)
                         sum_projected = np.sum(sum_projected, axis=0)
                         # Normalize
                         sum_projected /= np.max(sum_projected)
                         # Set all nans to 0
                         sum_projected = np.nan_to_num(sum_projected)
-                        normal_data[i] = sum_projected
+                        # Get area under the curve
+                        roi_area = np.sum(sum_projected)
+                        sum_acitivity[f"Animal_{i}"][roi_key] = roi_area
 
-                        
+                        normal_data[i] = sum_projected
 
                     mean_data = np.mean(normal_data, axis=0)
                     std_err = np.std(normal_data, axis=0) / np.sqrt(
@@ -90,6 +97,13 @@ def plotVerticalLine(experiments, output_path):
 
             else:
                 fig.delaxes(axes[row_idx, col_idx])
+
+    # write each animal's sum acitivity for each roi
+    with open(output_path / "sum_activity.csv", "w") as f:
+        writer = csv.writer(f)
+        for animal, roi_data in sum_acitivity.items():
+            writer.writerow([""] + list(sum_acitivity[animal].keys()))
+            writer.writerow([animal] + list(roi_data.values()))
 
     plt.tight_layout()
     plt.savefig(
@@ -208,14 +222,14 @@ if __name__ == "__main__":
             c += 1
 
         # Add to experiments dict under age group (args.input) and animal name
-        experiments[os.path.basename(args.input)][animal_name] = coordinateNorms
+        experiments[input_path.stem][animal_name] = coordinateNorms
 
     if not args.regraph:
         # save raw experiments as a pickle file
         with open(
             Path(
                 args.output.strip(),
-                f"raw_experiments_{os.path.basename(args.input)}.pkl",
+                f"raw_experiments_{input_path.stem}.pkl",
             ),
             "wb",
         ) as f:

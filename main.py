@@ -4,12 +4,21 @@ import pickle
 from pathlib import Path
 import matplotlib.pyplot as plt
 from skimage.segmentation import clear_border
-from skimage.morphology import binary_erosion, binary_dilation, remove_small_objects
-from skimage import img_as_float64
-from skimage.restoration import denoise_nl_means, estimate_sigma
-from skimage.measure import label
-from skimage.filters import threshold_otsu, gaussian, laplace
+from skimage.morphology import remove_small_objects
+from skimage.filters import threshold_otsu, try_all_threshold
 import cv2
+
+
+def sobel(image):
+    image = cv2.GaussianBlur(image, (3, 3), sigmaX=0, sigmaY=0)
+    gX = cv2.Sobel(image, cv2.CV_64F, 1, 0, ksize=3, delta=25)
+    gY = cv2.Sobel(image, cv2.CV_64F, 0, 1, ksize=3, delta=25)
+
+    gX = cv2.convertScaleAbs(gX)
+    gY = cv2.convertScaleAbs(gY)
+
+    combined = cv2.addWeighted(gX, 0.5, gY, 0.5, 0)
+    return combined
 
 
 class ROI:
@@ -104,14 +113,13 @@ class ROI:
             y, x = vert[0] - min_y, vert[1] - min_x
             image[y, x] = self.intensity[vert]
             mask[y, x] = 1
-        
+
         # cv2.imwrite(f"image_{self.name}_original.png", image)
         # Edge detection
-        smooth = gaussian(image, sigma=1)
-        edges = laplace(smooth)
-        edges = np.abs(edges)
+        edges = sobel(image)
         # Thresholding
         thresh = threshold_otsu(edges)
+        cv2.imwrite(f"edges_{self.name}.png", edges)
         # Create binary image
         binary = edges > thresh
         binary = clear_border(binary)
@@ -124,9 +132,9 @@ class ROI:
         normalized_mask = np.zeros((101, 101), dtype=np.uint8)
         for vert in verts:
             y, x = vert[0] - min_y, vert[1] - min_x
-            normalized_mask[int(y / y_range * 100), int(x / x_range * 100)] = (
-                1 if (binary[y, x] == 1) else 0
-            )
+            norm_y, norm_x = int(y / y_range * 100), int(x / x_range * 100)
+            if 0 < norm_y < 100 and 0 < norm_x < 100:
+                normalized_mask[norm_y, norm_x] = 1 if (binary[y, x] == 1) else 0
             image[y, x] = (0, 0, 255) if (binary[y, x] == 1) else (0, 255, 0)
 
         # Convert to uint8 and save
