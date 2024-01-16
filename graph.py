@@ -7,7 +7,28 @@ import matplotlib.pyplot as plt
 from scipy.stats import kruskal
 from main import ROI, loadROI
 import csv
-import cv2
+from mpl_toolkits.mplot3d import Axes3D
+
+
+def plot_heatmap_3d(roi, output_path):
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+    x, y, z = np.indices(np.array(roi.shape) + 1)
+
+    # Normalize your ROI data for the colormap
+    normalized_roi = roi / np.max(roi)
+
+    # Get the 'viridis' colormap
+    viridis = plt.get_cmap("viridis")
+
+    # Map the data values to colors
+    colors = viridis(normalized_roi)
+
+    # Plot voxels with colors mapped from the data values
+    ax.voxels(x, y, z, roi, facecolors=colors)
+
+    plt.savefig(output_path, dpi=300)
+    plt.close()
 
 
 def plotVerticalLine(experiments, output_path):
@@ -61,6 +82,9 @@ def plotVerticalLine(experiments, output_path):
                     roi_data = all_animals[roi_key]
                     normal_data = np.zeros((len(roi_data), 101))
                     for i, cube in enumerate(roi_data):
+                        # plot the 3d cube with counts
+                        # plot_heatmap_3d(cube, roi_key)
+
                         if sum_acitivity.get(f"Animal_{i}") is None:
                             sum_acitivity[f"Animal_{i}"] = {}
                         # Sum project the grids

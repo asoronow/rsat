@@ -113,18 +113,36 @@ class ROI:
             y, x = vert[0] - min_y, vert[1] - min_x
             image[y, x] = self.intensity[vert]
             mask[y, x] = 1
-
-        # cv2.imwrite(f"image_{self.name}_original.png", image)
+        stem = Path(self.filename).stem
         # Edge detection
         edges = sobel(image)
         # Thresholding
         thresh = threshold_otsu(edges)
-        cv2.imwrite(f"edges_{self.name}.png", edges)
         # Create binary image
         binary = edges > thresh
         binary = clear_border(binary)
-
         # Find the range of x and y coordinates
+        # plot the three image, edges, and binary
+        # fig, axes = plt.subplots(ncols=3, figsize=(8, 2.7))
+        # ax = axes.ravel()
+        # ax[0] = plt.subplot(1, 3, 1, adjustable="box")
+        # ax[1] = plt.subplot(1, 3, 2)
+        # ax[2] = plt.subplot(1, 3, 3, sharex=ax[0], sharey=ax[0], adjustable="box")
+
+        # ax[0].imshow(image, cmap=plt.cm.gray)
+        # ax[0].set_title("Original")
+        # ax[0].axis("off")
+
+        # ax[1].imshow(edges, cmap=plt.cm.gray)
+        # ax[1].set_title("Sobel Edge Detection")
+        # ax[1].axis("off")
+
+        # ax[2].imshow(binary * 255, cmap=plt.cm.gray)
+        # ax[2].set_title("Thresholded")
+        # ax[2].axis("off")
+
+        # plt.savefig(f"{stem}_thresholded.png", dpi=600)
+
         x_range = max_x - min_x
         y_range = max_y - min_y
         image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
@@ -134,14 +152,13 @@ class ROI:
             y, x = vert[0] - min_y, vert[1] - min_x
             norm_y, norm_x = int(y / y_range * 100), int(x / x_range * 100)
             if 0 < norm_y < 100 and 0 < norm_x < 100:
-                normalized_mask[norm_y, norm_x] = 1 if (binary[y, x] == 1) else 0
+                normalized_mask[norm_y, norm_x] += 1 if (binary[y, x] == 1) else 0
             image[y, x] = (0, 0, 255) if (binary[y, x] == 1) else (0, 255, 0)
 
         # Convert to uint8 and save
         # cv2.imwrite(f"image_{self.name}_colorized.png", image)
-        binary_uint8 = (normalized_mask * 255).astype(np.uint8)
         # cv2.imwrite(f"normalized_binary_{self.name}.png", binary_uint8)
-        self.mask = binary_uint8
+        self.mask = normalized_mask
 
 
 def loadROI(path):
