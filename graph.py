@@ -62,6 +62,9 @@ def plotVerticalLine(experiments, output_path):
         3, 5, figsize=(15, 10)
     )  # Adjusted for a 3-row, 5-column layout
 
+    max_roi_count = 0
+    all_mean_data = {}
+    all_std_err = {}
     for row_idx, row in enumerate(roi_layout):
         for col_idx, roi in enumerate(row):
             if roi:
@@ -78,6 +81,8 @@ def plotVerticalLine(experiments, output_path):
 
                 if roi_key not in all_animals:
                     roi_data = np.zeros((101))
+                    all_mean_data[roi_key] = roi_data
+                    all_std_err[roi_key] = roi_data
                 else:
                     roi_data = all_animals[roi_key]
                     normal_data = np.zeros((len(roi_data), 101))
@@ -91,40 +96,56 @@ def plotVerticalLine(experiments, output_path):
                         sum_projected = np.sum(cube, axis=0)
                         # cv2.imwrite(f"{roi_key}_{i}.png", sum_projected)
                         sum_projected = np.sum(sum_projected, axis=0)
-                        # Normalize
-                        sum_projected /= np.max(sum_projected)
                         # Set all nans to 0
                         sum_projected = np.nan_to_num(sum_projected)
+                        if np.max(sum_projected) > max_roi_count:
+                            max_roi_count = np.max(sum_projected)
                         # Get area under the curve
-                        roi_area = np.sum(sum_projected)
-                        sum_acitivity[f"Animal_{i}"][roi_key] = roi_area
-
+                        sum_acitivity[f"Animal_{i}"][roi_key] = sum_projected
                         normal_data[i] = sum_projected
 
                     mean_data = np.mean(normal_data, axis=0)
                     std_err = np.std(normal_data, axis=0) / np.sqrt(
                         normal_data.shape[0]
                     )
-                    ax.barh(
-                        np.arange(101),
-                        mean_data,
-                        color="red",
-                    )
-                    # Plot the standard error
-                    ax.fill_betweenx(
-                        np.arange(101),
-                        mean_data - std_err,
-                        mean_data + std_err,
-                        color="black",
-                        alpha=0.3,
-                    )
 
+                    all_mean_data[roi_key] = mean_data
+                    all_std_err[roi_key] = std_err
             else:
                 fig.delaxes(axes[row_idx, col_idx])
+
+    for row_idx, row in enumerate(roi_layout):
+        for col_idx, roi in enumerate(row):
+            if roi:
+                ax = axes[row_idx, col_idx]
+                roi_key = roi.lower()
+                mean_data = all_mean_data[roi_key]
+                std_err = all_std_err[roi_key]
+
+                ax.barh(
+                    np.arange(101),
+                    mean_data / max_roi_count,
+                    color="red",
+                )
+                # Plot the standard error
+                ax.fill_betweenx(
+                    np.arange(101),
+                    mean_data - std_err,
+                    mean_data + std_err,
+                    color="black",
+                    alpha=0.3,
+                )
 
     # write each animal's sum acitivity for each roi
     with open(output_path / "sum_activity.csv", "w") as f:
         writer = csv.writer(f)
+        # normalize and sum the activity
+        sum_acitivity = {
+            animal: {
+                roi: np.sum(data / max_roi_count) for roi, data in roi_data.items()
+            }
+            for animal, roi_data in sum_acitivity.items()
+        }
         for animal, roi_data in sum_acitivity.items():
             writer.writerow([""] + list(sum_acitivity[animal].keys()))
             writer.writerow([animal] + list(roi_data.values()))
