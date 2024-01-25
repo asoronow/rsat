@@ -7,3 +7,5 @@ __pycache__
 *.svg
 *.png
 .DS_Store
+*.pth
+sam

@@ -3,22 +3,10 @@ import os
 import pickle
 from pathlib import Path
 import matplotlib.pyplot as plt
+import networkx as nx
 from skimage.segmentation import clear_border
-from skimage.morphology import remove_small_objects
-from skimage.filters import threshold_otsu, try_all_threshold
+from skimage.filters import threshold_otsu, difference_of_gaussians
 import cv2
-
-
-def sobel(image):
-    image = cv2.GaussianBlur(image, (3, 3), sigmaX=0, sigmaY=0)
-    gX = cv2.Sobel(image, cv2.CV_64F, 1, 0, ksize=3, delta=25)
-    gY = cv2.Sobel(image, cv2.CV_64F, 0, 1, ksize=3, delta=25)
-
-    gX = cv2.convertScaleAbs(gX)
-    gY = cv2.convertScaleAbs(gY)
-
-    combined = cv2.addWeighted(gX, 0.5, gY, 0.5, 0)
-    return combined
 
 
 class ROI:
@@ -106,42 +94,43 @@ class ROI:
         max_y = max(vert[0] for vert in verts)
 
         # Create an image of the ROI
-        image = np.zeros((max_y - min_y + 1, max_x - min_x + 1), dtype=np.uint16)
+        image = np.zeros((max_y - min_y + 1, max_x - min_x + 1), dtype=np.uint8)
         mask = np.zeros_like(image, dtype=np.uint8)
 
         for vert in verts:
             y, x = vert[0] - min_y, vert[1] - min_x
             image[y, x] = self.intensity[vert]
             mask[y, x] = 1
+
+        # Filename
         stem = Path(self.filename).stem
         # Edge detection
-        edges = sobel(image)
-        # Thresholding
+        edges = difference_of_gaussians(image, 1, 10)
+        # Remove border
         thresh = threshold_otsu(edges)
-        # Create binary image
         binary = edges > thresh
         binary = clear_border(binary)
         # Find the range of x and y coordinates
         # plot the three image, edges, and binary
-        # fig, axes = plt.subplots(ncols=3, figsize=(8, 2.7))
-        # ax = axes.ravel()
-        # ax[0] = plt.subplot(1, 3, 1, adjustable="box")
-        # ax[1] = plt.subplot(1, 3, 2)
-        # ax[2] = plt.subplot(1, 3, 3, sharex=ax[0], sharey=ax[0], adjustable="box")
+        fig, axes = plt.subplots(ncols=3, figsize=(8, 2.7))
+        ax = axes.ravel()
+        ax[0] = plt.subplot(1, 3, 1, adjustable="box")
+        ax[1] = plt.subplot(1, 3, 2)
+        ax[2] = plt.subplot(1, 3, 3, sharex=ax[0], sharey=ax[0], adjustable="box")
 
-        # ax[0].imshow(image, cmap=plt.cm.gray)
-        # ax[0].set_title("Original")
-        # ax[0].axis("off")
+        ax[0].imshow(image, cmap=plt.cm.gray)
+        ax[0].set_title("Original")
+        ax[0].axis("off")
 
-        # ax[1].imshow(edges, cmap=plt.cm.gray)
-        # ax[1].set_title("Sobel Edge Detection")
-        # ax[1].axis("off")
+        ax[1].imshow(edges, cmap=plt.cm.gray)
+        ax[1].set_title("Edge Detection")
+        ax[1].axis("off")
 
-        # ax[2].imshow(binary * 255, cmap=plt.cm.gray)
-        # ax[2].set_title("Thresholded")
-        # ax[2].axis("off")
+        ax[2].imshow(binary * 255, cmap=plt.cm.gray)
+        ax[2].set_title("Thresholded")
+        ax[2].axis("off")
 
-        # plt.savefig(f"{stem}_thresholded.png", dpi=600)
+        plt.savefig(f"{stem}_thresholded.png", dpi=600)
 
         x_range = max_x - min_x
         y_range = max_y - min_y

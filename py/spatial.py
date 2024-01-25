@@ -193,21 +193,20 @@ class AxonDataClustering:
             ]
             labels_in_cluster = [real_labels[i] for i in current_cluster_indices]
 
-            label_counts = {
-                label: 0 for label in set(real_labels)
-            }
+            label_counts = {label: 0 for label in set(real_labels)}
             for label in labels_in_cluster:
                 label_counts[label] += 1
-            
+
             # Store the label counts dictionary in our cluster counts dictionary.
             cluster_counts[cluster_id] = label_counts
-
 
         cluster_labels = {}
         for label in set(real_labels):
             # sort clusters by label count
             sorted_clusters = sorted(
-                cluster_counts.keys(), key=lambda x: cluster_counts[x][label], reverse=True
+                cluster_counts.keys(),
+                key=lambda x: cluster_counts[x][label],
+                reverse=True,
             )
 
             # assign the label to the cluster with the highest count
@@ -217,7 +216,7 @@ class AxonDataClustering:
                     break
                 else:
                     continue
-                
+
         return cluster_labels
 
     def plot_umap_and_cm_age_only(self, predicted_labels):
@@ -347,7 +346,7 @@ def main():
     p3to7_path = Path(r"D:\VSV raw data\raw_experiments_p3to7.pkl")
     # loader.load(p3to7_path, "p3to7")
     # loader.load(old_data_path, "adult")
-    #loader.load(p3or4to7_path, "p3or4to7")
+    # loader.load(p3or4to7_path, "p3or4to7")
     loader.load(p3to7_path, "p3to7")
     loader.load(p5to9_path, "p5to9")
     # Just animals
