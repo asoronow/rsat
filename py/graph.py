@@ -98,7 +98,6 @@ def plotVerticalLine(experiments, output_path):
                         sum_projected = np.sum(sum_projected, axis=0)
                         # Set all nans to 0
                         sum_projected = np.nan_to_num(sum_projected)
-                        sum_projected = sum_projected / np.max(sum_projected)
                         if np.max(sum_projected) > max_roi_count:
                             max_roi_count = np.max(sum_projected)
                         # Get area under the curve
@@ -120,8 +119,8 @@ def plotVerticalLine(experiments, output_path):
             if roi:
                 ax = axes[row_idx, col_idx]
                 roi_key = roi.lower()
-                mean_data = all_mean_data[roi_key]
-                std_err = all_std_err[roi_key]
+                mean_data = all_mean_data[roi_key] / max_roi_count
+                std_err = all_std_err[roi_key] / max_roi_count
 
                 ax.barh(
                     np.arange(101),
@@ -241,7 +240,6 @@ if __name__ == "__main__":
     ]
     experiments = {input_path.stem: {}}
     num_rois = len([x for x in Path(input_path).glob("**/*.pkl") if x.is_file()])
-
     c = 0
     for exp_dir in subs_dirs:
         animal_name = os.path.basename(exp_dir)
