@@ -98,6 +98,7 @@ def plotVerticalLine(experiments, output_path):
                         sum_projected = np.sum(sum_projected, axis=0)
                         # Set all nans to 0
                         sum_projected = np.nan_to_num(sum_projected)
+                        sum_projected = sum_projected / np.max(sum_projected)
                         if np.max(sum_projected) > max_roi_count:
                             max_roi_count = np.max(sum_projected)
                         # Get area under the curve
@@ -124,7 +125,7 @@ def plotVerticalLine(experiments, output_path):
 
                 ax.barh(
                     np.arange(101),
-                    mean_data / max_roi_count,
+                    mean_data,
                     color="red",
                 )
                 # Plot the standard error
@@ -141,9 +142,7 @@ def plotVerticalLine(experiments, output_path):
         writer = csv.writer(f)
         # normalize and sum the activity
         sum_acitivity = {
-            animal: {
-                roi: np.sum(data / max_roi_count) for roi, data in roi_data.items()
-            }
+            animal: {roi: np.sum(data) for roi, data in roi_data.items()}
             for animal, roi_data in sum_acitivity.items()
         }
         for animal, roi_data in sum_acitivity.items():
