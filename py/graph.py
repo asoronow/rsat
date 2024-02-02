@@ -100,7 +100,7 @@ def plotVerticalLine(experiments, output_path):
                         sum_projected = np.nan_to_num(sum_projected)
                         if np.max(sum_projected) > max_roi_count:
                             max_roi_count = np.max(sum_projected)
-                        # Get area under the curve
+                        sum_projected = sum_projected[::-1]                        
                         sum_acitivity[f"Animal_{i}"][roi_key] = sum_projected
                         normal_data[i] = sum_projected
 
@@ -121,7 +121,6 @@ def plotVerticalLine(experiments, output_path):
                 roi_key = roi.lower()
                 mean_data = all_mean_data[roi_key] / max_roi_count
                 std_err = all_std_err[roi_key] / max_roi_count
-                mean_data = mean_data[::-1]
                 ax.barh(
                     np.arange(101),
                     mean_data,
