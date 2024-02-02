@@ -121,7 +121,7 @@ def plotVerticalLine(experiments, output_path):
                 roi_key = roi.lower()
                 mean_data = all_mean_data[roi_key] / max_roi_count
                 std_err = all_std_err[roi_key] / max_roi_count
-
+                mean_data = mean_data[::-1]
                 ax.barh(
                     np.arange(101),
                     mean_data,

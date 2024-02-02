@@ -3,11 +3,74 @@ import os
 import pickle
 from pathlib import Path
 import matplotlib.pyplot as plt
-import networkx as nx
-from skimage.segmentation import clear_border
-from skimage.filters import threshold_otsu, difference_of_gaussians
+from skimage.filters import threshold_otsu
 import cv2
+from scipy.ndimage import label, binary_dilation, center_of_mass
+from scipy.spatial import cKDTree
+def correct_edges(outside_points, binary_image, max_distance=20):
+    """
+    Fast version of correct_edges function.
 
+    Parameters:
+        outside_points (list): A list of points that are outside the ROI.
+        binary_image (np.array): A binary image of the ROI, where 1 is a detected point and 0 is not.
+        max_distance (int): The maximum distance from outside points to consider.
+
+    Returns:
+        np.array: The cleaned binary image.
+    """
+    # Create a mask from outside points
+    mask = np.zeros_like(binary_image, dtype=np.uint8)
+    mask[tuple(zip(*outside_points))] = 1
+
+    # Dilate the mask
+    dilated_mask = binary_dilation(mask, iterations=max_distance)
+
+    # Remove edge points directly from the binary image
+    binary_image[dilated_mask == 1] = 0
+
+    return binary_image 
+
+def draw_nearest_neighbor_lines(binary_image, original_image, max_distance_percent=0.1):
+    """
+    Draw lines connecting each component in the binary image to its nearest neighbor.
+
+    Parameters:
+        binary_image (np.array): A binary image where 1 represents a detected point.
+
+    Returns:
+        np.array: An image with lines connecting each component to its nearest neighbor.
+    """
+    # Label connected components
+    labeled_array, num_features = label(binary_image)
+    original_image = cv2.cvtColor(original_image, cv2.COLOR_GRAY2BGR)
+    # Find centroids of components
+    centroids = center_of_mass(binary_image, labeled_array, range(1, num_features + 1))
+    centroids = np.array(centroids)
+
+    # Create an empty image to draw lines
+    line_image = np.zeros_like(binary_image, dtype=np.uint8)
+    max_dimension = max(binary_image.shape)
+    max_distance = max_distance_percent * max_dimension
+    # Build KD-tree with centroids
+    if len(centroids) > 1:
+        kd_tree = cKDTree(centroids)
+
+        # Draw lines to nearest neighbor within max_distance
+        for centroid in centroids:
+            dist, nearest_idx = kd_tree.query(centroid, k=2)  # k=2 because the first one is the point itself
+            if dist[1] <= max_distance:
+                nearest_centroid = centroids[nearest_idx[1]]
+                cv2.line(line_image,
+                         (int(centroid[1]), int(centroid[0])),
+                         (int(nearest_centroid[1]), int(nearest_centroid[0])),
+                         (255), 1)
+                cv2.line(original_image,
+                            (int(centroid[1]), int(centroid[0])),
+                            (int(nearest_centroid[1]), int(nearest_centroid[0])),
+                            (0, 0, 255), 1)
+    
+    return line_image, original_image
 
 class ROI:
     """
@@ -40,18 +103,6 @@ class ROI:
             self.intensity[(i, j)] = int(
                 np.floor(float(self.intensity[(i, j)]) * self.coverage)
             )
-
-    def outliers(self, top=4000, bottom=0):
-        # Keep only values between the lower and upper threshold and set zero elsewhere
-        filtered_intensity = {}
-        for i, j in self.intensity.keys():
-            if self.intensity[(i, j)] <= top and self.intensity[(i, j)] >= bottom:
-                filtered_intensity[(i, j)] = self.intensity[(i, j)]
-            else:
-                filtered_intensity[(i, j)] = 0
-
-        # Update the intensity
-        self.intensity = filtered_intensity
 
     def bounds(self):
         # return the bounds of the ROI
@@ -105,18 +156,21 @@ class ROI:
         # Filename
         stem = Path(self.filename).stem
         # Edge detection
-        edges = difference_of_gaussians(image, 1, 10)
+        gauss = cv2.GaussianBlur(image, (3, 3), 0)
+        lapalace = cv2.Laplacian(gauss, cv2.CV_64F, ksize=3)
+        edges = cv2.convertScaleAbs(lapalace)
+        kernel = np.ones((3, 3), np.uint8)
+        edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=3)
         # Remove border
         thresh = threshold_otsu(edges)
-        binary = edges > thresh
-        binary = clear_border(binary)
-        # Find the range of x and y coordinates
-        # plot the three image, edges, and binary
+        binary = edges > (thresh + 15)
+        outside_points = np.argwhere(mask == 0)
+        binary = correct_edges(outside_points, binary, max_distance=20)
+
+        # Overlay the lines on the edges image
+        # Assuming the lines are in white (255), we can color them (e.g., in red)
         fig, axes = plt.subplots(ncols=3, figsize=(8, 2.7))
         ax = axes.ravel()
-        ax[0] = plt.subplot(1, 3, 1, adjustable="box")
-        ax[1] = plt.subplot(1, 3, 2)
-        ax[2] = plt.subplot(1, 3, 3, sharex=ax[0], sharey=ax[0], adjustable="box")
 
         ax[0].imshow(image, cmap=plt.cm.gray)
         ax[0].set_title("Original")
@@ -130,7 +184,12 @@ class ROI:
         ax[2].set_title("Thresholded")
         ax[2].axis("off")
 
-        plt.savefig(f"{stem}_thresholded.png", dpi=600)
+
+        # make a folder to save the images
+        output_folder = Path(f"./screening/{stem[:4]}/{self.name}").resolve()
+        output_folder.mkdir(exist_ok=True, parents=True)
+        plt.savefig(f"{str(output_folder)}/{stem}_thresholded.png", dpi=600)
+        plt.close()
 
         x_range = max_x - min_x
         y_range = max_y - min_y
@@ -142,7 +201,8 @@ class ROI:
             norm_y, norm_x = int(y / y_range * 100), int(x / x_range * 100)
             if 0 < norm_y < 100 and 0 < norm_x < 100:
                 normalized_mask[norm_y, norm_x] += 1 if (binary[y, x] == 1) else 0
-            image[y, x] = (0, 0, 255) if (binary[y, x] == 1) else (0, 255, 0)
+                image[y, x] = (0, 0, 255) if (binary[y, x] == 1) else (0, 255, 0)
+        cv2.imwrite(f"{str(output_folder)}/{stem}_colorized.png", image)
 
         # Convert to uint8 and save
         # cv2.imwrite(f"image_{self.name}_colorized.png", image)
