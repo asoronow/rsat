@@ -43,12 +43,10 @@ def plotVerticalLine(experiments, output_path):
     for age_group in experiments.keys():
         for animal in experiments[age_group].keys():
             for roi in experiments[age_group][animal].keys():
-                # make a 3d array of all the grids
+                # n dim array of all the rois from this experiement
                 if roi not in all_animals:
                     all_animals[roi] = []
-                # convert samples to arrays
-                all_animals[roi].append(np.array(experiments[age_group][animal][roi]))
-
+                all_animals[roi].append(experiments[age_group][animal][roi])
     # Make the normalized grids and stderror grids
     print("Plotting vertical line plots...")
 
@@ -57,12 +55,26 @@ def plotVerticalLine(experiments, output_path):
         ["VISli", "VISl", None, "VISam", "RSPd"],
         ["VISpor", "VISpl", None, "VISpm", "RSPv"],
     ]
-
+    roi_linear = [
+        "RSPv",
+        "RSPd",
+        "RSPagl",
+        "VISpm",
+        "VISam",
+        "VISa",
+        "VISrl",
+        "VISal",
+        "VISl",
+        "VISli",
+        "VISpl",
+        "VISpor",
+    ]
     fig, axes = plt.subplots(
         3, 5, figsize=(15, 10)
-    )  # Adjusted for a 3-row, 5-column layout
+    )
 
     max_roi_count = 0
+    all_total_data = {}
     all_mean_data = {}
     all_std_err = {}
     for row_idx, row in enumerate(roi_layout):
@@ -84,14 +96,15 @@ def plotVerticalLine(experiments, output_path):
                     all_mean_data[roi_key] = roi_data
                     all_std_err[roi_key] = roi_data
                 else:
-                    roi_data = all_animals[roi_key]
+                    roi_data = [[roi.mask for roi in animal] for animal in all_animals[roi_key]]
+                    roi_area = [[roi.area for roi in animal] for animal in all_animals[roi_key]]
+                    animal_names = [Path(roi.filename).stem.split("_")[0] for roi in all_animals[roi_key][0]]
                     normal_data = np.zeros((len(roi_data), 101))
                     for i, cube in enumerate(roi_data):
                         # plot the 3d cube with counts
                         # plot_heatmap_3d(cube, roi_key)
-
-                        if sum_acitivity.get(f"Animal_{i}") is None:
-                            sum_acitivity[f"Animal_{i}"] = {}
+                        if sum_acitivity.get(animal_names[i]) is None:
+                            sum_acitivity[animal_names[i]] = {}
                         # Sum project the grids
                         sum_projected = np.sum(cube, axis=0)
                         # cv2.imwrite(f"{roi_key}_{i}.png", sum_projected)
@@ -101,14 +114,16 @@ def plotVerticalLine(experiments, output_path):
                         if np.max(sum_projected) > max_roi_count:
                             max_roi_count = np.max(sum_projected)
                         sum_projected = sum_projected[::-1]                        
-                        sum_acitivity[f"Animal_{i}"][roi_key] = sum_projected
+                        sum_acitivity[animal_names[i]][roi_key] = sum_projected
                         normal_data[i] = sum_projected
-
+                    
+                    # linear graphing
+                    all_total_data[roi_key] = [np.sum(data) for data in normal_data]
+                    # data for scatter plots
                     mean_data = np.mean(normal_data, axis=0)
                     std_err = np.std(normal_data, axis=0) / np.sqrt(
                         normal_data.shape[0]
                     )
-
                     all_mean_data[roi_key] = mean_data
                     all_std_err[roi_key] = std_err
             else:
@@ -135,6 +150,42 @@ def plotVerticalLine(experiments, output_path):
                     alpha=0.3,
                 )
 
+    plt.tight_layout()
+    plt.savefig(
+        output_path / f"combined_{age_group}.svg",
+        format="svg",
+        dpi=600,
+        transparent=True,
+    )
+
+    # box plots for each roi
+    fig, ax = plt.subplots(
+        1, 1, figsize=(10, 5))
+
+    # reorder all_total_data to match the order of roi_linear
+    reorder = {}
+    for roi in roi_linear:
+        roi = roi.lower()
+        if roi in all_total_data:
+            reorder[roi] = all_total_data[roi]
+        else:
+            reorder[roi] = [0]
+
+    ax.plot([np.mean(data) for data in reorder.values()], marker="o")
+    ax.set_xticks(range(len(roi_linear)))
+    ax.set_xticklabels(roi_linear)
+    ax.set_ylabel("Axon coverage (A.U.)")
+    ax.set_xlabel("Region")
+    ax.set_title("Axon coverage in each region")
+
+    plt.tight_layout()
+    plt.savefig(
+        output_path / f"boxplot_{age_group}.svg",
+        format="svg",
+        dpi=600,
+        transparent=True,
+    )
+
     # write each animal's sum acitivity for each roi
     with open(output_path / "sum_activity.csv", "w") as f:
         writer = csv.writer(f)
@@ -146,36 +197,7 @@ def plotVerticalLine(experiments, output_path):
         for animal, roi_data in sum_acitivity.items():
             writer.writerow([""] + list(sum_acitivity[animal].keys()))
             writer.writerow([animal] + list(roi_data.values()))
-
-    plt.tight_layout()
-    plt.savefig(
-        output_path / f"combined_{age_group}.svg",
-        format="svg",
-        dpi=600,
-        transparent=True,
-    )
-
-
-def process_ROI(roi, coordinateNorms):
-    roi_name = roi.name.lower()
-
-    if roi_name not in coordinateNorms:
-        coordinateNorms[roi_name] = []
-
-    min_x = np.min([i for i, j in roi.intensity.keys()])
-    min_y = np.min([j for i, j in roi.intensity.keys()])
-
-    # Temporary grid for the current ROI slice
-    grid = np.zeros((101, 101))
-
-    for i, j in roi.intensity.keys():
-        l_x = min(i - min_x, roi.mask.shape[0] - 1)
-        l_y = min(j - min_y, roi.mask.shape[1] - 1)
-        grid[i, j] = roi.mask[l_x, l_y]
-
-    coordinateNorms[roi_name].append(grid)
-
-
+  
 if __name__ == "__main__":
     """
     Processes a directory of directories of ROIs. Each subdirectory is a different brain.
@@ -205,6 +227,10 @@ if __name__ == "__main__":
         default=False,
     )
     args = parser.parse_args()
+
+    # escape backslashes in input and output paths
+    args.input = args.input.strip().replace("\\", "\\\\")
+    args.output = args.output.strip().replace("\\", "\\\\")
 
     if args.input == None:
         raise Exception("No input directory provided")
@@ -237,13 +263,14 @@ if __name__ == "__main__":
         for sub_dir in os.listdir(input_path)
         if os.path.isdir(input_path / sub_dir)
     ]
+
     experiments = {input_path.stem: {}}
     num_rois = len([x for x in Path(input_path).glob("**/*.pkl") if x.is_file()])
+
     c = 0
     for exp_dir in subs_dirs:
         animal_name = os.path.basename(exp_dir)
-        coordinateNorms = {}
-
+        rois = {}
         for roi in loadROI(exp_dir):
             if roi is None:
                 print("No ROIs found, exiting...")
@@ -253,17 +280,17 @@ if __name__ == "__main__":
             try:
                 print(f"Preprocessing {roi.filename} [{c + 1}/{num_rois}]")
                 roi.create_axon_mask()
-                roi.normalize()
-
-                process_ROI(roi, coordinateNorms)
+                if roi.name.lower() not in rois:
+                    rois[roi.name.lower()] = [roi]
+                else:
+                    rois[roi.name.lower()].append(roi)
             except Exception as e:
                 print(f"Error processing ROI: {roi.filename}. Error: {str(e)}")
                 continue
 
             c += 1
-
         # Add to experiments dict under age group (args.input) and animal name
-        experiments[input_path.stem][animal_name] = coordinateNorms
+        experiments[input_path.stem][animal_name] = rois
 
     if not args.regraph:
         # save raw experiments as a pickle file
@@ -274,6 +301,12 @@ if __name__ == "__main__":
             ),
             "wb",
         ) as f:
+            # drop intensity data from the experiments
+            for age_group in experiments.keys():
+                for animal in experiments[age_group].keys():
+                    for roi in experiments[age_group][animal].keys():
+                        for i in range(len(experiments[age_group][animal][roi])):
+                            experiments[age_group][animal][roi][i].intensity = None
             pickle.dump(experiments, f)
 
     plotVerticalLine(experiments, output_path)

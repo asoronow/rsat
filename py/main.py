@@ -3,10 +3,11 @@ import os
 import pickle
 from pathlib import Path
 import matplotlib.pyplot as plt
-from skimage.filters import threshold_otsu
+from skimage.filters import gaussian, laplace, threshold_otsu
 import cv2
 from scipy.ndimage import label, binary_dilation, center_of_mass
 from scipy.spatial import cKDTree
+
 def correct_edges(outside_points, binary_image, max_distance=20):
     """
     Fast version of correct_edges function.
@@ -83,6 +84,7 @@ class ROI:
         self.intensity = intensity
         self.filename = filename
         self.coverage = coverage
+        self.area = self.total_area()
         self.mask = None
 
     def mean(self):
@@ -118,57 +120,40 @@ class ROI:
         height = bounds[3] - bounds[2]
         return bounds, width, height
 
-    def normalize(self):
-        """Normalize the coordinates of the ROI and Mask to 0-100"""
-        keys_array = np.array(list(self.intensity.keys()))
-        max_coords = keys_array.max(axis=0)
-        min_coords = keys_array.min(axis=0)
-
-        # Compute normalized values
-        normalized_keys = (
-            (keys_array - min_coords) / (max_coords - min_coords) * 100
-        ).astype(int)
-        self.intensity = {
-            (i, j): self.intensity[(x, y)]
-            for (i, j), (x, y) in zip(normalized_keys, keys_array)
-        }
+    def total_area(self):
+        # return the total area of the ROI
+        return len(self.intensity)
 
     def create_axon_mask(self):
         """Identify axons in the ROI"""
-
         verts = list(self.intensity.keys())
-
         # Find the bounding box for the ROI
         min_x = min(vert[1] for vert in verts)
         max_x = max(vert[1] for vert in verts)
         min_y = min(vert[0] for vert in verts)
         max_y = max(vert[0] for vert in verts)
-
         # Create an image of the ROI
         image = np.zeros((max_y - min_y + 1, max_x - min_x + 1), dtype=np.uint8)
-        mask = np.zeros_like(image, dtype=np.uint8)
-
+        mask = np.zeros_like(image)
         for vert in verts:
             y, x = vert[0] - min_y, vert[1] - min_x
             image[y, x] = self.intensity[vert]
             mask[y, x] = 1
-
         # Filename
         stem = Path(self.filename).stem
         # Edge detection
-        gauss = cv2.GaussianBlur(image, (3, 3), 0)
-        lapalace = cv2.Laplacian(gauss, cv2.CV_64F, ksize=3)
-        edges = cv2.convertScaleAbs(lapalace)
-        kernel = np.ones((3, 3), np.uint8)
-        edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=3)
-        # Remove border
+        gauss = gaussian(image, sigma=3)
+        laplacian = laplace(gauss)
+        edges = np.abs(laplacian)
+        edges = (edges / np.max(edges) * 255).astype(np.uint8)
         thresh = threshold_otsu(edges)
-        binary = edges > (thresh + 15)
+        binary = edges > (thresh)
         outside_points = np.argwhere(mask == 0)
         binary = correct_edges(outside_points, binary, max_distance=20)
 
-        # Overlay the lines on the edges image
-        # Assuming the lines are in white (255), we can color them (e.g., in red)
+        plt.rcParams["font.size"] = 12
+        # export text
+        plt.rcParams["svg.fonttype"] = "none"
         fig, axes = plt.subplots(ncols=3, figsize=(8, 2.7))
         ax = axes.ravel()
 
@@ -184,16 +169,17 @@ class ROI:
         ax[2].set_title("Thresholded")
         ax[2].axis("off")
 
-
-        # make a folder to save the images
+        # make a folder to save the image
         output_folder = Path(f"./screening/{stem[:4]}/{self.name}").resolve()
         output_folder.mkdir(exist_ok=True, parents=True)
+        plt.tight_layout()
         plt.savefig(f"{str(output_folder)}/{stem}_thresholded.png", dpi=600)
+        plt.savefig(f"{str(output_folder)}/{stem}_thresholded.svg", format="svg", dpi=600)
         plt.close()
 
         x_range = max_x - min_x
         y_range = max_y - min_y
-        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        image = cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_GRAY2BGR)
         # Normalize the coordinates to fit into a 101x101 grid
         normalized_mask = np.zeros((101, 101), dtype=np.uint8)
         for vert in verts:
@@ -204,9 +190,7 @@ class ROI:
                 image[y, x] = (0, 0, 255) if (binary[y, x] == 1) else (0, 255, 0)
         cv2.imwrite(f"{str(output_folder)}/{stem}_colorized.png", image)
 
-        # Convert to uint8 and save
-        # cv2.imwrite(f"image_{self.name}_colorized.png", image)
-        # cv2.imwrite(f"normalized_binary_{self.name}.png", binary_uint8)
+       
         self.mask = normalized_mask
 
 
