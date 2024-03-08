@@ -171,7 +171,14 @@ def plotVerticalLine(experiments, output_path):
         else:
             reorder[roi] = [0]
 
-    ax.plot([np.mean(data) for data in reorder.values()], marker="o")
+    ax.plot([np.mean(data) for data in reorder.values()], marker="o", color="red")
+    ax.errorbar(
+        range(len(reorder)),
+        [np.mean(data) for data in reorder.values()],
+        yerr=[(np.std(data) / np.sqrt(len(data))) for data in reorder.values()],
+        fmt="o",
+        color="red",
+    )
     ax.set_xticks(range(len(roi_linear)))
     ax.set_xticklabels(roi_linear)
     ax.set_ylabel("Axon coverage (A.U.)")
@@ -186,17 +193,19 @@ def plotVerticalLine(experiments, output_path):
         transparent=True,
     )
 
-    # write each animal's sum acitivity for each roi
-    with open(output_path / "sum_activity.csv", "w") as f:
+    # write each animal's sum total for each roi
+    with open(output_path / "sum_activity.csv", "w", newline='') as f:
         writer = csv.writer(f)
-        # normalize and sum the activity
-        sum_acitivity = {
-            animal: {roi: np.sum(data) for roi, data in roi_data.items()}
-            for animal, roi_data in sum_acitivity.items()
-        }
-        for animal, roi_data in sum_acitivity.items():
-            writer.writerow([""] + list(sum_acitivity[animal].keys()))
-            writer.writerow([animal] + list(roi_data.values()))
+        writer.writerow(["Animal"] + roi_linear)
+        for animal in sum_acitivity.keys():
+            row_data = []
+            for roi in roi_linear:
+                if roi.lower() in sum_acitivity[animal]:
+                    row_data.append(np.sum(sum_acitivity[animal][roi.lower()]))
+                else:
+                    row_data.append(0)
+            writer.writerow([animal] + row_data)
+        
   
 if __name__ == "__main__":
     """
