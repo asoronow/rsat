@@ -4,32 +4,8 @@ from pathlib import Path
 import pickle
 import argparse
 import matplotlib.pyplot as plt
-from scipy.stats import kruskal
 from main import ROI, loadROI
 import csv
-from mpl_toolkits.mplot3d import Axes3D
-
-
-def plot_heatmap_3d(roi, output_path):
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="3d")
-    x, y, z = np.indices(np.array(roi.shape) + 1)
-
-    # Normalize your ROI data for the colormap
-    normalized_roi = roi / np.max(roi)
-
-    # Get the 'viridis' colormap
-    viridis = plt.get_cmap("viridis")
-
-    # Map the data values to colors
-    colors = viridis(normalized_roi)
-
-    # Plot voxels with colors mapped from the data values
-    ax.voxels(x, y, z, roi, facecolors=colors)
-
-    plt.savefig(output_path, dpi=300)
-    plt.close()
-
 
 def plotVerticalLine(experiments, output_path):
     """
@@ -38,12 +14,15 @@ def plotVerticalLine(experiments, output_path):
     """
 
     all_animals = {}
-    sum_acitivity = {}
+    animal_sums = {}
     # Initialize meanGrids and stderrorGrids with zero arrays
     for age_group in experiments.keys():
         for animal in experiments[age_group].keys():
             for roi in experiments[age_group][animal].keys():
                 # n dim array of all the rois from this experiement
+                if animal not in animal_sums:
+                    animal_sums[animal] = {}
+
                 if roi not in all_animals:
                     all_animals[roi] = []
                 all_animals[roi].append(experiments[age_group][animal][roi])
@@ -97,14 +76,12 @@ def plotVerticalLine(experiments, output_path):
                     all_std_err[roi_key] = roi_data
                 else:
                     roi_data = [[roi.mask for roi in animal] for animal in all_animals[roi_key]]
-                    roi_area = [[roi.area for roi in animal] for animal in all_animals[roi_key]]
-                    animal_names = [Path(roi.filename).stem.split("_")[0] for roi in all_animals[roi_key][0]]
+                    # roi_area = [[roi.area for roi in animal] for animal in all_animals[roi_key]]
+                    animal_names = [Path(animal[0].filename).stem.split("_")[0] for animal in all_animals[roi_key]]
                     normal_data = np.zeros((len(roi_data), 101))
                     for i, cube in enumerate(roi_data):
                         # plot the 3d cube with counts
                         # plot_heatmap_3d(cube, roi_key)
-                        if sum_acitivity.get(animal_names[i]) is None:
-                            sum_acitivity[animal_names[i]] = {}
                         # Sum project the grids
                         sum_projected = np.sum(cube, axis=0)
                         # cv2.imwrite(f"{roi_key}_{i}.png", sum_projected)
@@ -114,7 +91,8 @@ def plotVerticalLine(experiments, output_path):
                         if np.max(sum_projected) > max_roi_count:
                             max_roi_count = np.max(sum_projected)
                         sum_projected = sum_projected[::-1]                        
-                        sum_acitivity[animal_names[i]][roi_key] = sum_projected
+                        animal_sums[animal_names[i]][roi_key] = sum_projected
+                        print(f"Sum projected {roi_key} for {animal_names[i]}: {np.sum(sum_projected)}")
                         normal_data[i] = sum_projected
                     
                     # linear graphing
@@ -197,11 +175,11 @@ def plotVerticalLine(experiments, output_path):
     with open(output_path / "sum_activity.csv", "w", newline='') as f:
         writer = csv.writer(f)
         writer.writerow(["Animal"] + roi_linear)
-        for animal in sum_acitivity.keys():
+        for animal in animal_sums.keys():
             row_data = []
             for roi in roi_linear:
-                if roi.lower() in sum_acitivity[animal]:
-                    row_data.append(np.sum(sum_acitivity[animal][roi.lower()]))
+                if roi.lower() in animal_sums[animal]:
+                    row_data.append(np.sum(animal_sums[animal][roi.lower()]))
                 else:
                     row_data.append(0)
             writer.writerow([animal] + row_data)
