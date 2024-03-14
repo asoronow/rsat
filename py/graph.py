@@ -4,7 +4,9 @@ from pathlib import Path
 import pickle
 import argparse
 import matplotlib.pyplot as plt
-from main import ROI, loadROI
+from main import ROI, loadROI, load_roi_from_file
+import multiprocessing
+from multiprocessing import Pool
 import csv
 
 def plotVerticalLine(experiments, output_path):
@@ -15,6 +17,16 @@ def plotVerticalLine(experiments, output_path):
 
     all_animals = {}
     animal_sums = {}
+    normalization_counts = None
+    if args.counts:
+        normalization_counts = {}
+        with open(args.counts, "r") as f:
+            reader = csv.reader(f)
+            animals = next(reader)
+            counts = next(reader)
+            for i, animal in enumerate(animals):
+                normalization_counts[animal] = float(counts[i])
+                
     # Initialize meanGrids and stderrorGrids with zero arrays
     for age_group in experiments.keys():
         for animal in experiments[age_group].keys():
@@ -26,6 +38,7 @@ def plotVerticalLine(experiments, output_path):
                 if roi not in all_animals:
                     all_animals[roi] = []
                 all_animals[roi].append(experiments[age_group][animal][roi])
+
     # Make the normalized grids and stderror grids
     print("Plotting vertical line plots...")
 
@@ -76,7 +89,7 @@ def plotVerticalLine(experiments, output_path):
                     all_std_err[roi_key] = roi_data
                 else:
                     roi_data = [[roi.mask for roi in animal] for animal in all_animals[roi_key]]
-                    # roi_area = [[roi.area for roi in animal] for animal in all_animals[roi_key]]
+                    roi_area = [[roi.area for roi in animal] for animal in all_animals[roi_key]]
                     animal_names = [Path(animal[0].filename).stem.split("_")[0] for animal in all_animals[roi_key]]
                     normal_data = np.zeros((len(roi_data), 101))
                     for i, cube in enumerate(roi_data):
@@ -90,10 +103,15 @@ def plotVerticalLine(experiments, output_path):
                         sum_projected = np.nan_to_num(sum_projected)
                         if np.max(sum_projected) > max_roi_count:
                             max_roi_count = np.max(sum_projected)
-                        sum_projected = sum_projected[::-1]                        
-                        animal_sums[animal_names[i]][roi_key] = sum_projected
-                        print(f"Sum projected {roi_key} for {animal_names[i]}: {np.sum(sum_projected)}")
-                        normal_data[i] = sum_projected
+                        sum_projected = sum_projected[::-1]
+
+                        if normalization_counts is not None:               
+                            animal_sums[animal_names[i]][roi_key] = sum_projected / normalization_counts[animal_names[i]]
+                            # print(f"Sum projected {roi_key} for {animal_names[i]}: {np.sum(sum_projected)}")
+                            normal_data[i] = sum_projected / normalization_counts[animal_names[i]]
+                        else:
+                            animal_sums[animal_names[i]][roi_key] = sum_projected
+                            normal_data[i] = sum_projected
                     
                     # linear graphing
                     all_total_data[roi_key] = [np.sum(data) for data in normal_data]
@@ -183,8 +201,25 @@ def plotVerticalLine(experiments, output_path):
                 else:
                     row_data.append(0)
             writer.writerow([animal] + row_data)
-        
-  
+
+def process_roi(roi_path):
+    """
+    This function is designed to be run in parallel. It loads a ROI,
+    processes it by calling create_axon_mask, and then returns the processed ROI.
+    It's wrapped in a try-except block to handle exceptions that might occur during processing.
+    """
+    try:
+        # Assuming loadROI loads a single ROI from the given path.
+        roi = load_roi_from_file(roi_path)
+        animal_name = Path(roi_path).stem.split("_")[0]
+        if roi is not None:
+            print(f"Preprocessing {roi.filename}")
+            roi.create_axon_mask()
+            return animal_name, roi.name.lower(), roi
+    except Exception as e:
+        print(f"Error processing ROI: {roi_path}. Error: {str(e)}")
+    return None, None, None
+
 if __name__ == "__main__":
     """
     Processes a directory of directories of ROIs. Each subdirectory is a different brain.
@@ -207,6 +242,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process some ROIs.")
     parser.add_argument("--input", type=str, help="Input ROI pkl file or directory")
     parser.add_argument("--output", type=str, help="Output directory")
+    parser.add_argument("--counts", type=str, help="Path to counts csv file for normalization")
     parser.add_argument(
         "--regraph",
         action="store_true",
@@ -218,6 +254,8 @@ if __name__ == "__main__":
     # escape backslashes in input and output paths
     args.input = args.input.strip().replace("\\", "\\\\")
     args.output = args.output.strip().replace("\\", "\\\\")
+    if args.counts:
+        args.counts = args.counts.strip().replace("\\", "\\\\")
 
     if args.input == None:
         raise Exception("No input directory provided")
@@ -252,32 +290,22 @@ if __name__ == "__main__":
     ]
 
     experiments = {input_path.stem: {}}
-    num_rois = len([x for x in Path(input_path).glob("**/*.pkl") if x.is_file()])
-
+    roi_paths = [x.absolute() for x in Path(input_path).glob("**/*.pkl") if x.is_file()]
+    num_rois = len(roi_paths)
     c = 0
-    for exp_dir in subs_dirs:
-        animal_name = os.path.basename(exp_dir)
-        rois = {}
-        for roi in loadROI(exp_dir):
-            if roi is None:
-                print("No ROIs found, exiting...")
-                break
+    with Pool(multiprocessing.cpu_count()) as pool:
+        results = pool.map(process_roi, roi_paths)
 
-            # Run preprocessing on the ROI
-            try:
-                print(f"Preprocessing {roi.filename} [{c + 1}/{num_rois}]")
-                roi.create_axon_mask()
-                if roi.name.lower() not in rois:
-                    rois[roi.name.lower()] = [roi]
-                else:
-                    rois[roi.name.lower()].append(roi)
-            except Exception as e:
-                print(f"Error processing ROI: {roi.filename}. Error: {str(e)}")
-                continue
+    # Add to experiments dict under age group (args.input) and animal name
+    for animal_name, roi_name, roi in results:
+        if roi is not None:
+            if animal_name not in experiments[input_path.stem]:
+                experiments[input_path.stem][animal_name] = {}
+            if roi_name not in experiments[input_path.stem][animal_name]:
+                experiments[input_path.stem][animal_name][roi_name] = []
+            
+            experiments[input_path.stem][animal_name][roi_name].append(roi)
 
-            c += 1
-        # Add to experiments dict under age group (args.input) and animal name
-        experiments[input_path.stem][animal_name] = rois
 
     if not args.regraph:
         # save raw experiments as a pickle file

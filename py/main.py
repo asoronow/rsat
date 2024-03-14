@@ -190,13 +190,42 @@ class ROI:
                 image[y, x] = (0, 0, 255) if (binary[y, x] == 1) else (0, 255, 0)
         cv2.imwrite(f"{str(output_folder)}/{stem}_colorized.png", image)
 
-       
+        # dump intensity data to save memory
+        self.intensity = None
+        self.verts = None
         self.mask = normalized_mask
 
 
+def load_roi_from_file(filename):
+    """
+    Load ROI from file.
+
+    Parameters:
+        filename (str): The filename of the ROI.
+
+    Returns:
+        ROI: The ROI object.
+    """
+    with open(filename, "rb") as f:
+        package = pickle.load(f)
+        try:
+            intensity = package["roi"]
+            name = package["name"]
+
+            try:
+                coverage = package["coverage"]
+            except KeyError:
+                coverage = None
+
+            filename = filename
+            roi = ROI(name, intensity, filename, coverage=coverage)
+            return roi
+        except:
+            print("Error loading ROI: {}".format(filename))
+            return None
 def loadROI(path):
     """
-    Load ROIs in as a generator.
+    Load ROIs in as a generator or a single ROI.
     """
     toLoad = []
     if os.path.isfile(path):
@@ -205,7 +234,8 @@ def loadROI(path):
         for root, _, files in os.walk(path):
             for file in files:
                 if file.endswith(".pkl"):
-                    toLoad.append(os.path.join(root, file))
+                    if "raw" not in file:
+                        toLoad.append(os.path.join(root, file))
     else:
         print("Invalid path")
         return None
