@@ -223,6 +223,7 @@ def load_roi_from_file(filename):
         except:
             print("Error loading ROI: {}".format(filename))
             return None
+        
 def loadROI(path):
     """
     Load ROIs in as a generator or a single ROI.

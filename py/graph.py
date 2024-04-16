@@ -8,6 +8,7 @@ from main import ROI, loadROI, load_roi_from_file
 import multiprocessing
 from multiprocessing import Pool
 import csv
+import seaborn as sns
 
 def plotVerticalLine(experiments, output_path):
     """
@@ -17,7 +18,10 @@ def plotVerticalLine(experiments, output_path):
 
     all_animals = {}
     animal_sums = {}
+    animal_areas = {}
     normalization_counts = None
+    h2b_counts = None
+    # Load the normalization counts
     if args.counts:
         normalization_counts = {}
         with open(args.counts, "r") as f:
@@ -26,6 +30,16 @@ def plotVerticalLine(experiments, output_path):
             counts = next(reader)
             for i, animal in enumerate(animals):
                 normalization_counts[animal] = float(counts[i])
+
+    if args.h2b:
+        h2b_counts = {}
+        with open(args.h2b, "r") as f:
+            reader = csv.reader(f)
+            # skip the header
+            next(reader)
+            for row in reader:
+                h2b_counts[row[0]] = list(row[1:])
+
                 
     # Initialize meanGrids and stderrorGrids with zero arrays
     for age_group in experiments.keys():
@@ -34,6 +48,7 @@ def plotVerticalLine(experiments, output_path):
                 # n dim array of all the rois from this experiement
                 if animal not in animal_sums:
                     animal_sums[animal] = {}
+                    animal_areas[animal] = {}
 
                 if roi not in all_animals:
                     all_animals[roi] = []
@@ -93,8 +108,6 @@ def plotVerticalLine(experiments, output_path):
                     animal_names = [Path(animal[0].filename).stem.split("_")[0] for animal in all_animals[roi_key]]
                     normal_data = np.zeros((len(roi_data), 101))
                     for i, cube in enumerate(roi_data):
-                        # plot the 3d cube with counts
-                        # plot_heatmap_3d(cube, roi_key)
                         # Sum project the grids
                         sum_projected = np.sum(cube, axis=0)
                         # cv2.imwrite(f"{roi_key}_{i}.png", sum_projected)
@@ -103,16 +116,17 @@ def plotVerticalLine(experiments, output_path):
                         sum_projected = np.nan_to_num(sum_projected)
                         if np.max(sum_projected) > max_roi_count:
                             max_roi_count = np.max(sum_projected)
-                        sum_projected = sum_projected[::-1]
 
+                        sum_projected = sum_projected[::-1]
                         if normalization_counts is not None:               
                             animal_sums[animal_names[i]][roi_key] = sum_projected / normalization_counts[animal_names[i]]
                             # print(f"Sum projected {roi_key} for {animal_names[i]}: {np.sum(sum_projected)}")
                             normal_data[i] = sum_projected / normalization_counts[animal_names[i]]
                         else:
                             animal_sums[animal_names[i]][roi_key] = sum_projected
+                            animal_areas[animal_names[i]][roi_key] = np.sum(roi_area[i])
                             normal_data[i] = sum_projected
-                    
+
                     # linear graphing
                     all_total_data[roi_key] = [np.sum(data) for data in normal_data]
                     # data for scatter plots
@@ -165,7 +179,7 @@ def plotVerticalLine(experiments, output_path):
         if roi in all_total_data:
             reorder[roi] = all_total_data[roi]
         else:
-            reorder[roi] = [0]
+            reorder[roi] = []
 
     ax.plot([np.mean(data) for data in reorder.values()], marker="o", color="red")
     ax.errorbar(
@@ -175,6 +189,30 @@ def plotVerticalLine(experiments, output_path):
         fmt="o",
         color="red",
     )
+
+    # swarm plot with all the data, different color for each animal in the same roi
+    # sns.swarmplot(data=[data for data in reorder.values()], ax=ax, color="black", edgecolor="black", size=5)
+    # sns.boxplot(data=[data for data in reorder.values()], ax=ax, fill=False, linecolor="black", showfliers=False, whiskerprops=dict(linestyle="--"))
+
+    if h2b_counts:
+        # h2b data is each animal's h2b counts
+        # need to make means
+        h2b_means = {roi.lower(): [] for roi in roi_linear}
+        for animal in h2b_counts.keys():
+            for roi in roi_linear:
+                h2b_means[roi.lower()].append(float(h2b_counts[animal][roi_linear.index(roi)]))
+        # make another y axis ticks for h2b counts
+        ax2 = ax.twinx()
+        ax2.set_ylabel("H2B counts")
+        ax2.plot([np.mean(data) for data in h2b_means.values()], marker="o", color="green")
+        ax2.errorbar(
+            range(len(h2b_means)),
+            [np.mean(data) for data in h2b_means.values()],
+            yerr=[(np.std(data) / np.sqrt(len(data))) for data in h2b_means.values()],
+            fmt="o",
+            color="green",
+        )
+
     ax.set_xticks(range(len(roi_linear)))
     ax.set_xticklabels(roi_linear)
     ax.set_ylabel("Axon coverage (A.U.)")
@@ -201,6 +239,20 @@ def plotVerticalLine(experiments, output_path):
                 else:
                     row_data.append(0)
             writer.writerow([animal] + row_data)
+    
+    # write each animal's area for each roi
+    with open(output_path / "area.csv", "w", newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Animal"] + roi_linear)
+        for animal in animal_areas.keys():
+            row_data = []
+            for roi in roi_linear:
+                if roi.lower() in animal_areas[animal]:
+                    row_data.append(animal_areas[animal][roi.lower()])
+                else:
+                    row_data.append(0)
+            writer.writerow([animal] + row_data)
+
 
 def process_roi(roi_path):
     """
@@ -216,6 +268,7 @@ def process_roi(roi_path):
             print(f"Preprocessing {roi.filename}")
             roi.create_axon_mask()
             return animal_name, roi.name.lower(), roi
+        
     except Exception as e:
         print(f"Error processing ROI: {roi_path}. Error: {str(e)}")
     return None, None, None
@@ -249,6 +302,11 @@ if __name__ == "__main__":
         help="Regraph the data from the raw experiments",
         default=False,
     )
+    parser.add_argument(
+        "--h2b",
+        type=str,
+        help="Path to h2b counts csv file for normalization",
+    )
     args = parser.parse_args()
 
     # escape backslashes in input and output paths
@@ -256,6 +314,8 @@ if __name__ == "__main__":
     args.output = args.output.strip().replace("\\", "\\\\")
     if args.counts:
         args.counts = args.counts.strip().replace("\\", "\\\\")
+    if args.h2b:
+        args.h2b = args.h2b.strip().replace("\\", "\\\\")
 
     if args.input == None:
         raise Exception("No input directory provided")
