@@ -60,7 +60,7 @@ def plotVerticalLine(experiments, output_path):
     roi_layout = [
         [None, "VISal", "VISrl", "VISa", "RSPagl"],
         ["VISli", "VISl", None, "VISam", "RSPd"],
-        ["VISpor", "VISpl", None, "VISpm", "RSPv"],
+        ["VISpor", None, None, "VISpm", "RSPv"],
     ]
     roi_linear = [
         "RSPv",
@@ -73,7 +73,6 @@ def plotVerticalLine(experiments, output_path):
         "VISal",
         "VISl",
         "VISli",
-        "VISpl",
         "VISpor",
     ]
     fig, axes = plt.subplots(
@@ -353,7 +352,7 @@ if __name__ == "__main__":
     roi_paths = [x.absolute() for x in Path(input_path).glob("**/*.pkl") if x.is_file()]
     num_rois = len(roi_paths)
     c = 0
-    with Pool(multiprocessing.cpu_count()) as pool:
+    with Pool(8) as pool:
         results = pool.map(process_roi, roi_paths)
 
     # Add to experiments dict under age group (args.input) and animal name

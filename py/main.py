@@ -3,10 +3,10 @@ import os
 import pickle
 from pathlib import Path
 import matplotlib.pyplot as plt
-from skimage.filters import gaussian, laplace, threshold_otsu
+from skimage.filters import threshold_otsu, laplace, gaussian
 import cv2
-from scipy.ndimage import label, binary_dilation, center_of_mass
-from scipy.spatial import cKDTree
+from scipy.ndimage import binary_dilation, binary_erosion, generate_binary_structure
+from skimage.morphology import skeletonize
 
 def correct_edges(outside_points, binary_image, max_distance=20):
     """
@@ -31,47 +31,6 @@ def correct_edges(outside_points, binary_image, max_distance=20):
     binary_image[dilated_mask == 1] = 0
 
     return binary_image 
-
-def draw_nearest_neighbor_lines(binary_image, original_image, max_distance_percent=0.1):
-    """
-    Draw lines connecting each component in the binary image to its nearest neighbor.
-
-    Parameters:
-        binary_image (np.array): A binary image where 1 represents a detected point.
-
-    Returns:
-        np.array: An image with lines connecting each component to its nearest neighbor.
-    """
-    # Label connected components
-    labeled_array, num_features = label(binary_image)
-    original_image = cv2.cvtColor(original_image, cv2.COLOR_GRAY2BGR)
-    # Find centroids of components
-    centroids = center_of_mass(binary_image, labeled_array, range(1, num_features + 1))
-    centroids = np.array(centroids)
-
-    # Create an empty image to draw lines
-    line_image = np.zeros_like(binary_image, dtype=np.uint8)
-    max_dimension = max(binary_image.shape)
-    max_distance = max_distance_percent * max_dimension
-    # Build KD-tree with centroids
-    if len(centroids) > 1:
-        kd_tree = cKDTree(centroids)
-
-        # Draw lines to nearest neighbor within max_distance
-        for centroid in centroids:
-            dist, nearest_idx = kd_tree.query(centroid, k=2)  # k=2 because the first one is the point itself
-            if dist[1] <= max_distance:
-                nearest_centroid = centroids[nearest_idx[1]]
-                cv2.line(line_image,
-                         (int(centroid[1]), int(centroid[0])),
-                         (int(nearest_centroid[1]), int(nearest_centroid[0])),
-                         (255), 1)
-                cv2.line(original_image,
-                            (int(centroid[1]), int(centroid[0])),
-                            (int(nearest_centroid[1]), int(nearest_centroid[0])),
-                            (0, 0, 255), 1)
-    
-    return line_image, original_image
 
 class ROI:
     """
@@ -132,6 +91,10 @@ class ROI:
         max_x = max(vert[1] for vert in verts)
         min_y = min(vert[0] for vert in verts)
         max_y = max(vert[0] for vert in verts)
+
+        # Filestem
+        stem = Path(self.filename).stem
+
         # Create an image of the ROI
         image = np.zeros((max_y - min_y + 1, max_x - min_x + 1), dtype=np.uint8)
         mask = np.zeros_like(image)
@@ -139,10 +102,11 @@ class ROI:
             y, x = vert[0] - min_y, vert[1] - min_x
             image[y, x] = self.intensity[vert]
             mask[y, x] = 1
-        # Filename
-        stem = Path(self.filename).stem
+   
         # Edge detection
-        gauss = gaussian(image, sigma=3)
+        image = (image / np.max(image) * 255).astype(np.uint8)
+        
+        gauss = gaussian(image, sigma=2.0)
         laplacian = laplace(gauss)
         edges = np.abs(laplacian)
         edges = (edges / np.max(edges) * 255).astype(np.uint8)
@@ -150,6 +114,19 @@ class ROI:
         binary = edges > (thresh)
         outside_points = np.argwhere(mask == 0)
         binary = correct_edges(outside_points, binary, max_distance=20)
+        # Closing
+        structure = generate_binary_structure(2, 1)
+        dilated = binary_dilation(binary, iterations=12, structure=structure)
+        eroded = binary_erosion(dilated, iterations=12, structure=structure)
+        # Skeletonize
+        binary = skeletonize(eroded)
+        # Fix edges
+        outside_points = np.argwhere(mask == 0)
+        binary = correct_edges(outside_points, binary, max_distance=20)
+        # overlay on image and save
+        colored_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        colored_image[binary == 1] = [0, 0, 255]
+       
 
         plt.rcParams["font.size"] = 12
         # export text
@@ -165,7 +142,7 @@ class ROI:
         ax[1].set_title("Edge Detection")
         ax[1].axis("off")
 
-        ax[2].imshow(binary * 255, cmap=plt.cm.gray)
+        ax[2].imshow(eroded * 255, cmap=plt.cm.gray)
         ax[2].set_title("Thresholded")
         ax[2].axis("off")
 
@@ -180,6 +157,8 @@ class ROI:
         x_range = max_x - min_x
         y_range = max_y - min_y
         image = cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_GRAY2BGR)
+        cv2.imwrite(f"{str(output_folder)}/{stem}_axon_mask.png", colored_image)
+
         # Normalize the coordinates to fit into a 101x101 grid
         normalized_mask = np.zeros((101, 101), dtype=np.uint8)
         for vert in verts:
