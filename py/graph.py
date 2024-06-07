@@ -4,11 +4,89 @@ from pathlib import Path
 import pickle
 import argparse
 import matplotlib.pyplot as plt
-from main import ROI, loadROI, load_roi_from_file
-import multiprocessing
+from main import ROI, loadROI, load_roi_from_file, correct_edges
 from multiprocessing import Pool
 import csv
-import seaborn as sns
+import numpy as np
+import os
+import pickle
+from pathlib import Path
+import matplotlib.pyplot as plt
+from skimage.filters import threshold_otsu, laplace, gaussian
+import cv2
+from scipy.ndimage import binary_dilation, binary_erosion, generate_binary_structure
+from skimage.morphology import skeletonize
+from ipywidgets import interact, FloatSlider, IntSlider, fixed
+from IPython.display import display
+
+TUNED_PARAMETERS = {"sigma": 2.0, "contrast": 1.0, "brightness": 0}
+def visualize_and_tweak_roi(roi):
+    def plot_with_params(intensity, sigma, contrast, brightness):
+        verts = list(intensity.keys())
+        min_x = min(vert[1] for vert in verts)
+        max_x = max(vert[1] for vert in verts)
+        min_y = min(vert[0] for vert in verts)
+        max_y = max(vert[0] for vert in verts)
+
+        image = np.zeros((max_y - min_y + 1, max_x - min_x + 1), dtype=np.uint8)
+        mask = np.zeros_like(image)
+        for vert in verts:
+            y, x = vert[0] - min_y, vert[1] - min_x
+            image[y, x] = intensity[vert]
+            mask[y, x] = 1
+
+        # Apply contrast and brightness adjustments
+        image = np.clip(contrast * image + brightness, 0, 255).astype(np.uint8)
+
+        image = (image / np.max(image) * 255).astype(np.uint8)
+        gauss = gaussian(image, sigma=sigma)
+        laplacian = laplace(gauss)
+        edges = np.abs(laplacian)
+        edges = (edges / np.max(edges) * 255).astype(np.uint8)
+        thresh = threshold_otsu(edges)
+        binary = edges > thresh
+        outside_points = np.argwhere(mask == 0)
+        binary = correct_edges(outside_points, binary, max_distance=20)
+        structure = generate_binary_structure(2, 1)
+        dilated = binary_dilation(binary, iterations=12, structure=structure)
+        eroded = binary_erosion(dilated, iterations=12, structure=structure)
+        binary = skeletonize(eroded)
+        outside_points = np.argwhere(mask == 0)
+        binary = correct_edges(outside_points, binary, max_distance=20)
+        colored_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        colored_image[binary == 1] = [0, 0, 255]
+
+        fig, axes = plt.subplots(ncols=3, figsize=(12, 4))
+        ax = axes.ravel()
+        ax[0].imshow(image, cmap=plt.cm.gray)
+        ax[0].set_title("Original Adjusted")
+        ax[0].axis("off")
+
+        ax[1].imshow(edges, cmap=plt.cm.gray)
+        ax[1].set_title("Edge Detection")
+        ax[1].axis("off")
+
+        ax[2].imshow(eroded * 255, cmap=plt.cm.gray)
+        ax[2].set_title("Thresholded")
+        ax[2].axis("off")
+
+        plt.tight_layout()
+        plt.show()
+
+        # Update the global container with the current parameters
+        TUNED_PARAMETERS["sigma"] = sigma
+        TUNED_PARAMETERS["contrast"] = contrast
+        TUNED_PARAMETERS["brightness"] = brightness
+
+    widget = interact(
+        plot_with_params,
+        intensity=fixed(roi.intensity),
+        sigma=FloatSlider(min=0.1, max=5.0, step=0.1, value=2.0, description='Sigma'),
+        contrast=FloatSlider(min=0.5, max=2.0, step=0.1, value=1.0, description='Contrast'),
+        brightness=IntSlider(min=-100, max=100, step=1, value=0, description='Brightness')
+    )
+
+    display(widget)
 
 def plotVerticalLine(experiments, output_path):
     """
@@ -295,6 +373,7 @@ if __name__ == "__main__":
     parser.add_argument("--input", type=str, help="Input ROI pkl file or directory")
     parser.add_argument("--output", type=str, help="Output directory")
     parser.add_argument("--counts", type=str, help="Path to counts csv file for normalization")
+    parser.add_argument("--tune", type=str, help="Path to a pkl to tune parameters for normalization")
     parser.add_argument(
         "--regraph",
         action="store_true",
@@ -340,6 +419,13 @@ if __name__ == "__main__":
             experiments_pkl = pickle.load(f)
         plotVerticalLine(experiments_pkl, output_path)
         quit()
+
+    if args.tune:
+        # load individual pkl
+        with open(args.tune, "rb") as f:
+            to_tune = pickle.load(f)
+
+        visualize_and_tweak_roi(to_tune)
 
     # Get subdirectories from input
     subs_dirs = [

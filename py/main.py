@@ -7,7 +7,8 @@ from skimage.filters import threshold_otsu, laplace, gaussian
 import cv2
 from scipy.ndimage import binary_dilation, binary_erosion, generate_binary_structure
 from skimage.morphology import skeletonize
-
+from ipywidgets import interact, FloatSlider, IntSlider, fixed
+from IPython.display import display
 def correct_edges(outside_points, binary_image, max_distance=20):
     """
     Fast version of correct_edges function.
@@ -82,7 +83,7 @@ class ROI:
     def total_area(self):
         # return the total area of the ROI
         return len(self.intensity)
-
+    
     def create_axon_mask(self):
         """Identify axons in the ROI"""
         verts = list(self.intensity.keys())
