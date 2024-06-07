@@ -3,12 +3,9 @@ import os
 import pickle
 from pathlib import Path
 import matplotlib.pyplot as plt
-from skimage.filters import threshold_otsu, laplace, gaussian
+from skimage.filters import threshold_otsu, gaussian
 import cv2
-from scipy.ndimage import binary_dilation, binary_erosion, generate_binary_structure
-from skimage.morphology import skeletonize
-from ipywidgets import interact, FloatSlider, IntSlider, fixed
-from IPython.display import display
+from scipy.ndimage import binary_dilation, convolve
 def correct_edges(outside_points, binary_image, max_distance=20):
     """
     Fast version of correct_edges function.
@@ -84,7 +81,7 @@ class ROI:
         # return the total area of the ROI
         return len(self.intensity)
     
-    def create_axon_mask(self):
+    def create_axon_mask(self, tuned_params):
         """Identify axons in the ROI"""
         verts = list(self.intensity.keys())
         # Find the bounding box for the ROI
@@ -96,6 +93,11 @@ class ROI:
         # Filestem
         stem = Path(self.filename).stem
 
+        # params
+        sigma = tuned_params["sigma"]
+        contrast = tuned_params["contrast"]
+        brightness = tuned_params["brightness"]
+
         # Create an image of the ROI
         image = np.zeros((max_y - min_y + 1, max_x - min_x + 1), dtype=np.uint8)
         mask = np.zeros_like(image)
@@ -103,31 +105,23 @@ class ROI:
             y, x = vert[0] - min_y, vert[1] - min_x
             image[y, x] = self.intensity[vert]
             mask[y, x] = 1
-   
-        # Edge detection
+
+        # Apply contrast and brightness adjustments
+        image = np.clip(contrast * image + brightness, 0, 255).astype(np.uint8)
         image = (image / np.max(image) * 255).astype(np.uint8)
-        
-        gauss = gaussian(image, sigma=2.0)
-        laplacian = laplace(gauss)
-        edges = np.abs(laplacian)
-        edges = (edges / np.max(edges) * 255).astype(np.uint8)
+
+        gauss = gaussian(image, sigma=sigma)
+        horizontal = np.array([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]])  # s2
+        vertical = np.array([[-1, -1, -1], [0, 0, 0], [1, 1, 1]])  # s1
+        edges = np.abs(convolve(gauss, horizontal, mode="constant")) + np.abs(
+            convolve(gauss, vertical, mode="constant")
+        )
         thresh = threshold_otsu(edges)
-        binary = edges > (thresh)
+        binary = edges > thresh
         outside_points = np.argwhere(mask == 0)
         binary = correct_edges(outside_points, binary, max_distance=20)
-        # Closing
-        structure = generate_binary_structure(2, 1)
-        dilated = binary_dilation(binary, iterations=12, structure=structure)
-        eroded = binary_erosion(dilated, iterations=12, structure=structure)
-        # Skeletonize
-        binary = skeletonize(eroded)
-        # Fix edges
-        outside_points = np.argwhere(mask == 0)
-        binary = correct_edges(outside_points, binary, max_distance=20)
-        # overlay on image and save
         colored_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
         colored_image[binary == 1] = [0, 0, 255]
-       
 
         plt.rcParams["font.size"] = 12
         # export text
@@ -143,7 +137,7 @@ class ROI:
         ax[1].set_title("Edge Detection")
         ax[1].axis("off")
 
-        ax[2].imshow(eroded * 255, cmap=plt.cm.gray)
+        ax[2].imshow(binary * 255, cmap=plt.cm.gray)
         ax[2].set_title("Thresholded")
         ax[2].axis("off")
 

@@ -12,81 +12,110 @@ import os
 import pickle
 from pathlib import Path
 import matplotlib.pyplot as plt
-from skimage.filters import threshold_otsu, laplace, gaussian
+from skimage.filters import threshold_otsu, gaussian, median
+from skimage.morphology import disk
 import cv2
-from scipy.ndimage import binary_dilation, binary_erosion, generate_binary_structure
-from skimage.morphology import skeletonize
-from ipywidgets import interact, FloatSlider, IntSlider, fixed
-from IPython.display import display
+from scipy.ndimage import convolve
 
-TUNED_PARAMETERS = {"sigma": 2.0, "contrast": 1.0, "brightness": 0}
-def visualize_and_tweak_roi(roi):
-    def plot_with_params(intensity, sigma, contrast, brightness):
-        verts = list(intensity.keys())
-        min_x = min(vert[1] for vert in verts)
-        max_x = max(vert[1] for vert in verts)
-        min_y = min(vert[0] for vert in verts)
-        max_y = max(vert[0] for vert in verts)
+import tkinter as tk
+from tkinter import Scale, Button, Label
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-        image = np.zeros((max_y - min_y + 1, max_x - min_x + 1), dtype=np.uint8)
-        mask = np.zeros_like(image)
-        for vert in verts:
-            y, x = vert[0] - min_y, vert[1] - min_x
-            image[y, x] = intensity[vert]
-            mask[y, x] = 1
+TUNED_PARAMS = {"sigma": 0.5, "contrast": 1.0, "brightness": 0}
 
-        # Apply contrast and brightness adjustments
-        image = np.clip(contrast * image + brightness, 0, 255).astype(np.uint8)
+def plot_with_params(intensity, sigma, contrast, brightness):
+    verts = list(intensity.keys())
+    min_x = min(vert[1] for vert in verts)
+    max_x = max(vert[1] for vert in verts)
+    min_y = min(vert[0] for vert in verts)
+    max_y = max(vert[0] for vert in verts)
 
-        image = (image / np.max(image) * 255).astype(np.uint8)
-        gauss = gaussian(image, sigma=sigma)
-        laplacian = laplace(gauss)
-        edges = np.abs(laplacian)
-        edges = (edges / np.max(edges) * 255).astype(np.uint8)
-        thresh = threshold_otsu(edges)
-        binary = edges > thresh
-        outside_points = np.argwhere(mask == 0)
-        binary = correct_edges(outside_points, binary, max_distance=20)
-        structure = generate_binary_structure(2, 1)
-        dilated = binary_dilation(binary, iterations=12, structure=structure)
-        eroded = binary_erosion(dilated, iterations=12, structure=structure)
-        binary = skeletonize(eroded)
-        outside_points = np.argwhere(mask == 0)
-        binary = correct_edges(outside_points, binary, max_distance=20)
-        colored_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-        colored_image[binary == 1] = [0, 0, 255]
+    image = np.zeros((max_y - min_y + 1, max_x - min_x + 1), dtype=np.uint8)
+    mask = np.zeros_like(image)
+    for vert in verts:
+        y, x = vert[0] - min_y, vert[1] - min_x
+        image[y, x] = intensity[vert]
+        mask[y, x] = 1
 
-        fig, axes = plt.subplots(ncols=3, figsize=(12, 4))
-        ax = axes.ravel()
-        ax[0].imshow(image, cmap=plt.cm.gray)
-        ax[0].set_title("Original Adjusted")
-        ax[0].axis("off")
-
-        ax[1].imshow(edges, cmap=plt.cm.gray)
-        ax[1].set_title("Edge Detection")
-        ax[1].axis("off")
-
-        ax[2].imshow(eroded * 255, cmap=plt.cm.gray)
-        ax[2].set_title("Thresholded")
-        ax[2].axis("off")
-
-        plt.tight_layout()
-        plt.show()
-
-        # Update the global container with the current parameters
-        TUNED_PARAMETERS["sigma"] = sigma
-        TUNED_PARAMETERS["contrast"] = contrast
-        TUNED_PARAMETERS["brightness"] = brightness
-
-    widget = interact(
-        plot_with_params,
-        intensity=fixed(roi.intensity),
-        sigma=FloatSlider(min=0.1, max=5.0, step=0.1, value=2.0, description='Sigma'),
-        contrast=FloatSlider(min=0.5, max=2.0, step=0.1, value=1.0, description='Contrast'),
-        brightness=IntSlider(min=-100, max=100, step=1, value=0, description='Brightness')
+    # Apply contrast and brightness adjustments
+    image = np.clip(contrast * image + brightness, 0, 255).astype(np.uint8)
+    image = (image / np.max(image) * 255).astype(np.uint8)
+    # gauss = gaussian(image, sigma=sigma)
+    gauss = gaussian(image, sigma=sigma)
+    horizontal = np.array([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]])  # s2
+    vertical = np.array([[-1, -1, -1], [0, 0, 0], [1, 1, 1]])  # s1
+    edges = np.abs(convolve(gauss, horizontal, mode="reflect")) + np.abs(
+        convolve(gauss, vertical, mode="reflect")
     )
+    thresh = threshold_otsu(edges)
+    binary = edges > thresh
+    outside_points = np.argwhere(mask == 0)
+    binary = correct_edges(outside_points, binary, max_distance=20)
+    colored_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    colored_image[binary == 1] = [0, 0, 255]
 
-    display(widget)
+    fig, axes = plt.subplots(ncols=3, figsize=(12, 4))
+    ax = axes.ravel()
+    ax[0].imshow(image, cmap=plt.cm.gray)
+    ax[0].set_title("Original Adjusted")
+    ax[0].axis("off")
+
+    ax[1].imshow(edges, cmap=plt.cm.gray)
+    ax[1].set_title("Edge Detection")
+    ax[1].axis("off")
+
+    ax[2].imshow(binary * 255, cmap=plt.cm.gray)
+    ax[2].set_title("Thresholded")
+    ax[2].axis("off")
+
+    plt.tight_layout()
+    return fig
+
+def visualize_and_tweak_roi(roi):
+    def update_plot():
+        sigma = sigma_scale.get()
+        contrast = contrast_scale.get() / 10
+        brightness = brightness_scale.get()
+
+        fig = plot_with_params(roi.intensity, sigma, contrast, brightness)
+        canvas.figure = fig
+        canvas.draw()
+
+        TUNED_PARAMS["sigma"] = sigma
+        TUNED_PARAMS["contrast"] = contrast
+        TUNED_PARAMS["brightness"] = brightness
+
+    def close_window():
+        root.quit()
+        root.destroy()
+        print(f"Tuned Parameters: Sigma={TUNED_PARAMS['sigma']}, Contrast={TUNED_PARAMS['contrast']}, Brightness={TUNED_PARAMS['brightness']}")
+
+    root = tk.Tk()
+    root.title("Axon Mask Parameter Tuning")
+
+    sigma_scale = Scale(root, from_=0.1, to=5.0, resolution=0.1, orient=tk.HORIZONTAL, label="Sigma")
+    sigma_scale.set(TUNED_PARAMS["sigma"])
+    sigma_scale.pack()
+
+    contrast_scale = Scale(root, from_=5, to=20, resolution=0.1, orient=tk.HORIZONTAL, label="Contrast")
+    contrast_scale.set(TUNED_PARAMS["contrast"] * 10)
+    contrast_scale.pack()
+
+    brightness_scale = Scale(root, from_=-100, to=100, orient=tk.HORIZONTAL, label="Brightness")
+    brightness_scale.set(TUNED_PARAMS["brightness"])
+    brightness_scale.pack()
+
+    update_button = Button(root, text="Update Plot", command=update_plot)
+    update_button.pack()
+
+    close_button = Button(root, text="Close", command=close_window)
+    close_button.pack()
+
+    fig = plot_with_params(roi.intensity, TUNED_PARAMS["sigma"], TUNED_PARAMS["contrast"], TUNED_PARAMS["brightness"])
+    canvas = FigureCanvasTkAgg(fig, master=root)
+    canvas.get_tk_widget().pack()
+
+    root.mainloop()
 
 def plotVerticalLine(experiments, output_path):
     """
@@ -343,7 +372,7 @@ def process_roi(roi_path):
         animal_name = Path(roi_path).stem.split("_")[0]
         if roi is not None:
             print(f"Preprocessing {roi.filename}")
-            roi.create_axon_mask()
+            roi.create_axon_mask(TUNED_PARAMS)
             return animal_name, roi.name.lower(), roi
         
     except Exception as e:
@@ -422,10 +451,19 @@ if __name__ == "__main__":
 
     if args.tune:
         # load individual pkl
-        with open(args.tune, "rb") as f:
-            to_tune = pickle.load(f)
+        to_tune = load_roi_from_file(args.tune)
+
 
         visualize_and_tweak_roi(to_tune)
+
+        while True:
+            should_continue = input("Do you want to continue? (y/n): ")
+            if should_continue.lower() == "y":
+                break
+            elif should_continue.lower() == "n":
+                quit()
+            else:
+                print("Please enter either 'y' or 'n'.")
 
     # Get subdirectories from input
     subs_dirs = [
