@@ -369,6 +369,7 @@ def process_roi(roi_path, tuned_parameters):
         # Assuming loadROI loads a single ROI from the given path.
         roi = load_roi_from_file(roi_path)
         animal_name = Path(roi_path).stem.split("_")[0]
+        print(tuned_parameters)
         if roi is not None:
             print(f"Preprocessing {roi.filename}")
             roi.create_axon_mask(tuned_parameters)
@@ -477,7 +478,7 @@ if __name__ == "__main__":
     num_rois = len(roi_paths)
     c = 0
     with Pool(8) as pool:
-        results = pool.map(process_roi, [(roi_path, TUNED_PARAMETERS) for roi_path in roi_paths])
+        results = pool.starmap(process_roi, [(roi_path, TUNED_PARAMETERS) for roi_path in roi_paths])
 
     # Add to experiments dict under age group (args.input) and animal name
     for animal_name, roi_name, roi in results:
