@@ -12,7 +12,7 @@ import os
 import pickle
 from pathlib import Path
 import matplotlib.pyplot as plt
-from skimage.filters import threshold_otsu, gaussian
+from skimage.filters import threshold_otsu, gaussian, difference_of_gaussians
 from skimage.morphology import disk
 import cv2
 from scipy.ndimage import convolve
@@ -40,19 +40,29 @@ def plot_with_params(intensity, sigma, contrast, brightness):
     # Apply contrast and brightness adjustments
     image = np.clip(contrast * image + brightness, 0, 255).astype(np.uint8)
     image = (image / np.max(image) * 255).astype(np.uint8)
-    # gauss = gaussian(image, sigma=sigma)
+
+    # Apply Gaussian smoothing
     gauss = gaussian(image, sigma=sigma)
-    horizontal = np.array([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]])  # s2
-    vertical = np.array([[-1, -1, -1], [0, 0, 0], [1, 1, 1]])  # s1
-    edges = np.abs(convolve(gauss, horizontal, mode="reflect")) + np.abs(
-        convolve(gauss, vertical, mode="reflect")
-    )
-    thresh = threshold_otsu(edges)
-    binary = edges > thresh
+
+    # Find edges using the Sobel operator
+    sobelX = cv2.Sobel(gauss, cv2.CV_64F, 1, 0, ksize=3)
+    sobelY = cv2.Sobel(gauss, cv2.CV_64F, 0, 1, ksize=3)
+    gradient = np.sqrt(np.square(sobelX) + np.square(sobelY))
+
+    # Apply difference of Gaussians edge detection
+    dog = difference_of_gaussians(gradient, 2, 15)
+    normal_dog = cv2.normalize(dog, None, 0, 255, cv2.NORM_MINMAX)
+    # Threshold the image
+    thresh = threshold_otsu(normal_dog)
+    edges = normal_dog > thresh
+
+    # Correct for edge points near the outside of the ROI
     outside_points = np.argwhere(mask == 0)
-    binary = correct_edges(outside_points, binary, max_distance=20)
+    edges = correct_edges(outside_points, edges, max_distance=20)
+
+    # Color the edges in red
     colored_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-    colored_image[binary == 1] = [0, 0, 255]
+    colored_image[edges == 1] = [0, 0, 255]
 
     fig, axes = plt.subplots(ncols=3, figsize=(12, 4))
     ax = axes.ravel()
@@ -60,11 +70,11 @@ def plot_with_params(intensity, sigma, contrast, brightness):
     ax[0].set_title("Original Adjusted")
     ax[0].axis("off")
 
-    ax[1].imshow(edges, cmap=plt.cm.gray)
+    ax[1].imshow(normal_dog, cmap=plt.cm.gray)
     ax[1].set_title("Edge Detection")
     ax[1].axis("off")
 
-    ax[2].imshow(binary * 255, cmap=plt.cm.gray)
+    ax[2].imshow(edges * 255, cmap=plt.cm.gray)
     ax[2].set_title("Thresholded")
     ax[2].axis("off")
 
@@ -73,9 +83,9 @@ def plot_with_params(intensity, sigma, contrast, brightness):
 
 def visualize_and_tweak_roi(roi):
     def update_plot():
-        sigma = sigma_scale.get()
-        contrast = contrast_scale.get() / 10
-        brightness = brightness_scale.get()
+        sigma = float(sigma_entry.get())
+        contrast = float(contrast_entry.get())
+        brightness = float(brightness_entry.get())
 
         fig = plot_with_params(roi.intensity, sigma, contrast, brightness)
         canvas.figure = fig
@@ -378,7 +388,6 @@ def process_roi(roi_path, tuned_parameters):
         # Assuming loadROI loads a single ROI from the given path.
         roi = load_roi_from_file(roi_path)
         animal_name = Path(roi_path).stem.split("_")[0]
-        print(tuned_parameters)
         if roi is not None:
             print(f"Preprocessing {roi.filename}")
             roi.create_axon_mask(tuned_parameters)
