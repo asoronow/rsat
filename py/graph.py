@@ -88,7 +88,6 @@ def visualize_and_tweak_roi(roi):
     def close_window():
         root.quit()
         root.destroy()
-        print(f"Tuned Parameters: Sigma={TUNED_PARAMETERS['sigma']}, Contrast={TUNED_PARAMETERS['contrast']}, Brightness={TUNED_PARAMETERS['brightness']}")
 
     root = tk.Tk()
     root.title("Axon Mask Parameter Tuning")
@@ -360,7 +359,7 @@ def plotVerticalLine(experiments, output_path):
             writer.writerow([animal] + row_data)
 
 
-def process_roi(roi_path):
+def process_roi(roi_path, tuned_parameters):
     """
     This function is designed to be run in parallel. It loads a ROI,
     processes it by calling create_axon_mask, and then returns the processed ROI.
@@ -372,7 +371,7 @@ def process_roi(roi_path):
         animal_name = Path(roi_path).stem.split("_")[0]
         if roi is not None:
             print(f"Preprocessing {roi.filename}")
-            roi.create_axon_mask(TUNED_PARAMETERS)
+            roi.create_axon_mask(tuned_parameters)
             return animal_name, roi.name.lower(), roi
         
     except Exception as e:
@@ -452,11 +451,11 @@ if __name__ == "__main__":
     if args.tune:
         # load individual pkl
         to_tune = load_roi_from_file(args.tune)
-        print(f"Parameters: Sigma={TUNED_PARAMETERS['sigma']}, Contrast={TUNED_PARAMETERS['contrast']}, Brightness={TUNED_PARAMETERS['brightness']}")
-
-
+        print(f"Parameters Before: Sigma={TUNED_PARAMETERS['sigma']}, Contrast={TUNED_PARAMETERS['contrast']}, Brightness={TUNED_PARAMETERS['brightness']}")
         visualize_and_tweak_roi(to_tune)
+        print(f"Parameters After: Sigma={TUNED_PARAMETERS['sigma']}, Contrast={TUNED_PARAMETERS['contrast']}, Brightness={TUNED_PARAMETERS['brightness']}")
 
+        # ask user if they want to continue
         while True:
             should_continue = input("Do you want to continue? (y/n): ")
             if should_continue.lower() == "y":
@@ -478,7 +477,7 @@ if __name__ == "__main__":
     num_rois = len(roi_paths)
     c = 0
     with Pool(8) as pool:
-        results = pool.map(process_roi, roi_paths)
+        results = pool.map(process_roi, [(roi_path, TUNED_PARAMETERS) for roi_path in roi_paths])
 
     # Add to experiments dict under age group (args.input) and animal name
     for animal_name, roi_name, roi in results:
