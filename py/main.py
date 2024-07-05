@@ -105,9 +105,11 @@ class ROI:
             y, x = vert[0] - min_y, vert[1] - min_x
             image[y, x] = self.intensity[vert]
             mask[y, x] = 1
-
+            
         # Apply contrast and brightness adjustments
-        image = np.clip(contrast * image + brightness, 0, 255).astype(np.uint8)
+        image = np.clip(tuned_params["contrast"] * image + tuned_params["brightness"], 0, 255).astype(np.uint8)
+
+        # Edge detection
         image = (image / np.max(image) * 255).astype(np.uint8)
 
         gauss = gaussian(image, sigma=sigma)

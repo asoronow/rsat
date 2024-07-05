@@ -21,7 +21,7 @@ import tkinter as tk
 from tkinter import Scale, Button, Label
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-TUNED_PARAMS = {"sigma": 0.5, "contrast": 1.0, "brightness": 0}
+TUNED_PARAMETERS = {"sigma": 0.5, "contrast": 1.0, "brightness": 0}
 
 def plot_with_params(intensity, sigma, contrast, brightness):
     verts = list(intensity.keys())
@@ -81,28 +81,28 @@ def visualize_and_tweak_roi(roi):
         canvas.figure = fig
         canvas.draw()
 
-        TUNED_PARAMS["sigma"] = sigma
-        TUNED_PARAMS["contrast"] = contrast
-        TUNED_PARAMS["brightness"] = brightness
+        TUNED_PARAMETERS["sigma"] = sigma
+        TUNED_PARAMETERS["contrast"] = contrast
+        TUNED_PARAMETERS["brightness"] = brightness
 
     def close_window():
         root.quit()
         root.destroy()
-        print(f"Tuned Parameters: Sigma={TUNED_PARAMS['sigma']}, Contrast={TUNED_PARAMS['contrast']}, Brightness={TUNED_PARAMS['brightness']}")
+        print(f"Tuned Parameters: Sigma={TUNED_PARAMETERS['sigma']}, Contrast={TUNED_PARAMETERS['contrast']}, Brightness={TUNED_PARAMETERS['brightness']}")
 
     root = tk.Tk()
     root.title("Axon Mask Parameter Tuning")
 
     sigma_scale = Scale(root, from_=0.1, to=5.0, resolution=0.1, orient=tk.HORIZONTAL, label="Sigma")
-    sigma_scale.set(TUNED_PARAMS["sigma"])
+    sigma_scale.set(TUNED_PARAMETERS["sigma"])
     sigma_scale.pack()
 
     contrast_scale = Scale(root, from_=5, to=20, resolution=0.1, orient=tk.HORIZONTAL, label="Contrast")
-    contrast_scale.set(TUNED_PARAMS["contrast"] * 10)
+    contrast_scale.set(TUNED_PARAMETERS["contrast"] * 10)
     contrast_scale.pack()
 
     brightness_scale = Scale(root, from_=-100, to=100, orient=tk.HORIZONTAL, label="Brightness")
-    brightness_scale.set(TUNED_PARAMS["brightness"])
+    brightness_scale.set(TUNED_PARAMETERS["brightness"])
     brightness_scale.pack()
 
     update_button = Button(root, text="Update Plot", command=update_plot)
@@ -111,7 +111,7 @@ def visualize_and_tweak_roi(roi):
     close_button = Button(root, text="Close", command=close_window)
     close_button.pack()
 
-    fig = plot_with_params(roi.intensity, TUNED_PARAMS["sigma"], TUNED_PARAMS["contrast"], TUNED_PARAMS["brightness"])
+    fig = plot_with_params(roi.intensity, TUNED_PARAMETERS["sigma"], TUNED_PARAMETERS["contrast"], TUNED_PARAMETERS["brightness"])
     canvas = FigureCanvasTkAgg(fig, master=root)
     canvas.get_tk_widget().pack()
 
@@ -372,7 +372,7 @@ def process_roi(roi_path):
         animal_name = Path(roi_path).stem.split("_")[0]
         if roi is not None:
             print(f"Preprocessing {roi.filename}")
-            roi.create_axon_mask(TUNED_PARAMS)
+            roi.create_axon_mask(TUNED_PARAMETERS=TUNED_PARAMETERS)
             return animal_name, roi.name.lower(), roi
         
     except Exception as e:
