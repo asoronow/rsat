@@ -452,6 +452,7 @@ if __name__ == "__main__":
     if args.tune:
         # load individual pkl
         to_tune = load_roi_from_file(args.tune)
+        print(f"Parameters: Sigma={TUNED_PARAMETERS['sigma']}, Contrast={TUNED_PARAMETERS['contrast']}, Brightness={TUNED_PARAMETERS['brightness']}")
 
 
         visualize_and_tweak_roi(to_tune)
