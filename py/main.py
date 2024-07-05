@@ -93,11 +93,6 @@ class ROI:
         # Filestem
         stem = Path(self.filename).stem
 
-        # params
-        sigma = tuned_params["sigma"]
-        contrast = tuned_params["contrast"]
-        brightness = tuned_params["brightness"]
-
         # Create an image of the ROI
         image = np.zeros((max_y - min_y + 1, max_x - min_x + 1), dtype=np.uint8)
         mask = np.zeros_like(image)
@@ -112,7 +107,7 @@ class ROI:
         # Edge detection
         image = (image / np.max(image) * 255).astype(np.uint8)
 
-        gauss = gaussian(image, sigma=sigma)
+        gauss = gaussian(image, sigma=tuned_params["sigma"])
         horizontal = np.array([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]])  # s2
         vertical = np.array([[-1, -1, -1], [0, 0, 0], [1, 1, 1]])  # s1
         edges = np.abs(convolve(gauss, horizontal, mode="constant")) + np.abs(

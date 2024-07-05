@@ -12,7 +12,7 @@ import os
 import pickle
 from pathlib import Path
 import matplotlib.pyplot as plt
-from skimage.filters import threshold_otsu, gaussian, median
+from skimage.filters import threshold_otsu, gaussian
 from skimage.morphology import disk
 import cv2
 from scipy.ndimage import convolve
@@ -372,7 +372,7 @@ def process_roi(roi_path):
         animal_name = Path(roi_path).stem.split("_")[0]
         if roi is not None:
             print(f"Preprocessing {roi.filename}")
-            roi.create_axon_mask(TUNED_PARAMETERS=TUNED_PARAMETERS)
+            roi.create_axon_mask(TUNED_PARAMETERS)
             return animal_name, roi.name.lower(), roi
         
     except Exception as e:
