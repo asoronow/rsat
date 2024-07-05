@@ -92,17 +92,26 @@ def visualize_and_tweak_roi(roi):
     root = tk.Tk()
     root.title("Axon Mask Parameter Tuning")
 
-    sigma_scale = Scale(root, from_=0.1, to=5.0, resolution=0.1, orient=tk.HORIZONTAL, label="Sigma")
-    sigma_scale.set(TUNED_PARAMETERS["sigma"])
-    sigma_scale.pack()
+    sigma_label = tk.Label(root, text="Sigma (0.5-5.0)")
+    sigma_label.pack()
 
-    contrast_scale = Scale(root, from_=5, to=20, resolution=0.1, orient=tk.HORIZONTAL, label="Contrast")
-    contrast_scale.set(TUNED_PARAMETERS["contrast"] * 10)
-    contrast_scale.pack()
+    sigma_entry = tk.Entry(root)
+    sigma_entry.insert(tk.END, str(TUNED_PARAMETERS["sigma"]))
+    sigma_entry.pack()
 
-    brightness_scale = Scale(root, from_=-100, to=100, orient=tk.HORIZONTAL, label="Brightness")
-    brightness_scale.set(TUNED_PARAMETERS["brightness"])
-    brightness_scale.pack()
+    contrast_label = tk.Label(root, text="Contrast (0.0-2.5)")
+    contrast_label.pack()
+
+    contrast_entry = tk.Entry(root)
+    contrast_entry.insert(tk.END, str(TUNED_PARAMETERS["contrast"]))
+    contrast_entry.pack()
+
+    brightness_label = tk.Label(root, text="Brightness (-100-100)")
+    brightness_label.pack()
+
+    brightness_entry = tk.Entry(root)
+    brightness_entry.insert(tk.END, str(TUNED_PARAMETERS["brightness"]))
+    brightness_entry.pack()
 
     update_button = Button(root, text="Update Plot", command=update_plot)
     update_button.pack()
