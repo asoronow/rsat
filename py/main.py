@@ -3,9 +3,9 @@ import os
 import pickle
 from pathlib import Path
 import matplotlib.pyplot as plt
-from skimage.morphology import remove_small_objects
+from skimage.morphology import remove_small_objects, skeletonize
 import cv2
-from skimage.filters import difference_of_gaussians, sobel, unsharp_mask, threshold_triangle, threshold_otsu
+from skimage.filters import sobel, unsharp_mask, threshold_otsu, threshold_triangle
 from scipy.ndimage import binary_closing, binary_dilation
 
 def correct_edges(outside_points, binary_image, max_distance=20):
@@ -102,19 +102,21 @@ class ROI:
             y, x = vert[0] - min_y, vert[1] - min_x
             image[y, x] = self.intensity[vert]
             mask[y, x] = 1 
-
-        # Use edge drawing  
-        edges = (sobel(image) * (2**16 - 1)).astype(np.uint16)
-        edges = difference_of_gaussians(edges, 0.5, 20)
-        edges = unsharp_mask(edges, radius=2, amount=3)
         
+        image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        image = cv2.GaussianBlur(image, (3, 3), 0)
+        # Use edge drawing  
+        edges = sobel(image)
         thresh = threshold_triangle(edges)
         binary = edges > thresh
-        # Remove small objects
-        binary = remove_small_objects(binary, min_size=50, connectivity=2)
-        outside_points = np.argwhere(mask == 0)
-        binary = correct_edges(outside_points, binary)
+        binary = remove_small_objects(binary, min_size=100)
+        binary = binary_closing(binary, structure=np.ones((3, 3)), iterations=2)
+        binary = remove_small_objects(binary, min_size=100)
 
+        # Remove small objects
+        outside_points = np.argwhere(mask == 0)
+        binary = skeletonize(binary)
+        binary = correct_edges(outside_points, binary)
 
         colored_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
         colored_image[binary == 1] = [0, 0, 255]
