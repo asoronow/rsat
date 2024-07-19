@@ -12,14 +12,11 @@ import os
 import pickle
 from pathlib import Path
 import matplotlib.pyplot as plt
-from skimage.filters import threshold_otsu, gaussian, difference_of_gaussians
-from skimage.morphology import disk
 import cv2
-from scipy.ndimage import convolve
-
 import tkinter as tk
-from tkinter import Scale, Button, Label
+from tkinter import Button
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from skimage.morphology import binary_dilation, remove_small_objects
 
 TUNED_PARAMETERS = {"sigma": 0.5, "contrast": 1.0, "brightness": 0}
 
@@ -41,21 +38,22 @@ def plot_with_params(intensity, sigma, contrast, brightness):
     image = np.clip(contrast * image + brightness, 0, 255).astype(np.uint8)
     image = (image / np.max(image) * 255).astype(np.uint8)
 
-    # Apply Gaussian smoothing
-    gauss = gaussian(image, sigma=sigma)
+    # Apply Gaussian blur to gradients
+    gaussA = cv2.GaussianBlur(image, (7, 7), 0.5)
+    gaussB = cv2.GaussianBlur(image, (7, 7), 20)
+    
+    # Difference of Gaussian (DoG)
+    dof = gaussB - gaussA
+    dof = cv2.normalize(dof, None, 0, 1, cv2.NORM_MINMAX).astype(np.uint8)
+    
+    # Threshold the DoG result
+    edges = cv2.threshold(dof, 0, 1, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+    edges = binary_dilation(edges, structure=np.ones((2, 2)), iterations=1)
 
-    # Find edges using the Sobel operator
-    sobelX = cv2.Sobel(gauss, cv2.CV_64F, 1, 0, ksize=3)
-    sobelY = cv2.Sobel(gauss, cv2.CV_64F, 0, 1, ksize=3)
-    gradient = np.sqrt(np.square(sobelX) + np.square(sobelY))
-
-    # Apply difference of Gaussians edge detection
-    dog = difference_of_gaussians(gradient, 2, 15)
-    normal_dog = cv2.normalize(dog, None, 0, 255, cv2.NORM_MINMAX)
-    # Threshold the image
-    thresh = threshold_otsu(normal_dog)
-    edges = normal_dog > thresh
-
+    # Remove small objects
+    edges = remove_small_objects(edges, min_size=50)
+    edges = edges.astype(np.uint8) * 255
+    
     # Correct for edge points near the outside of the ROI
     outside_points = np.argwhere(mask == 0)
     edges = correct_edges(outside_points, edges, max_distance=20)
@@ -70,7 +68,7 @@ def plot_with_params(intensity, sigma, contrast, brightness):
     ax[0].set_title("Original Adjusted")
     ax[0].axis("off")
 
-    ax[1].imshow(normal_dog, cmap=plt.cm.gray)
+    ax[1].imshow(dof, cmap=plt.cm.gray)
     ax[1].set_title("Edge Detection")
     ax[1].axis("off")
 

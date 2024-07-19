@@ -3,9 +3,9 @@ import os
 import pickle
 from pathlib import Path
 import matplotlib.pyplot as plt
-from skimage.filters import threshold_otsu, gaussian
+from skimage.morphology import remove_small_objects
 import cv2
-from scipy.ndimage import binary_dilation, convolve
+from scipy.ndimage import binary_dilation
 def correct_edges(outside_points, binary_image, max_distance=20):
     """
     Fast version of correct_edges function.
@@ -106,15 +106,15 @@ class ROI:
 
         # Edge detection
         image = (image / np.max(image) * 255).astype(np.uint8)
+        gaussA = cv2.GaussianBlur(image, (7, 7), 0.5)
+        gaussB = cv2.GaussianBlur(image, (7, 7), 20)
+        dof = gaussB - gaussA
+        dof = cv2.normalize(dof, None, 0, 1, cv2.NORM_MINMAX).astype(np.uint8)
+        edges = cv2.threshold(dof, 0, 1, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+        edges = binary_dilation(edges, structure=np.ones((2, 2)), iterations=1)
+        edges = remove_small_objects(edges, min_size=10)
+        edges = edges.astype(np.uint8)
 
-        gauss = gaussian(image, sigma=tuned_params["sigma"])
-        horizontal = np.array([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]])  # s2
-        vertical = np.array([[-1, -1, -1], [0, 0, 0], [1, 1, 1]])  # s1
-        edges = np.abs(convolve(gauss, horizontal, mode="constant")) + np.abs(
-            convolve(gauss, vertical, mode="constant")
-        )
-        thresh = threshold_otsu(edges)
-        binary = edges > thresh
         outside_points = np.argwhere(mask == 0)
         binary = correct_edges(outside_points, binary, max_distance=20)
         colored_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
