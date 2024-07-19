@@ -28,6 +28,8 @@ def detect_axons(gray_image, label_image, margin=5):
     # Compute Dice coefficient with margin of error
     label_image_binary = label_image // 255
     edges_binary = edges // 255
+    cv2.imshow("Edges", edges)
+    cv2.waitKey(0)
     
     # Dilate the binary images to include margin of error
     kernel = np.ones((margin, margin), np.uint8)

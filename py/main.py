@@ -5,7 +5,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from skimage.morphology import remove_small_objects
 import cv2
-from scipy.ndimage import binary_dilation
+from skimage.filters import difference_of_gaussians, sobel, unsharp_mask, threshold_triangle, threshold_otsu
+from scipy.ndimage import binary_closing, binary_dilation
+
 def correct_edges(outside_points, binary_image, max_distance=20):
     """
     Fast version of correct_edges function.
@@ -94,29 +96,26 @@ class ROI:
         stem = Path(self.filename).stem
 
         # Create an image of the ROI
-        image = np.zeros((max_y - min_y + 1, max_x - min_x + 1), dtype=np.uint8)
+        image = np.zeros((max_y - min_y + 1, max_x - min_x + 1), dtype=np.uint16)
         mask = np.zeros_like(image)
         for vert in verts:
             y, x = vert[0] - min_y, vert[1] - min_x
             image[y, x] = self.intensity[vert]
-            mask[y, x] = 1
-            
-        # Apply contrast and brightness adjustments
-        image = np.clip(tuned_params["contrast"] * image + tuned_params["brightness"], 0, 255).astype(np.uint8)
+            mask[y, x] = 1 
 
-        # Edge detection
-        image = (image / np.max(image) * 255).astype(np.uint8)
-        gaussA = cv2.GaussianBlur(image, (7, 7), 0.5)
-        gaussB = cv2.GaussianBlur(image, (7, 7), 20)
-        dof = gaussB - gaussA
-        dof = cv2.normalize(dof, None, 0, 1, cv2.NORM_MINMAX).astype(np.uint8)
-        edges = cv2.threshold(dof, 0, 1, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
-        edges = binary_dilation(edges, structure=np.ones((2, 2)), iterations=1)
-        edges = remove_small_objects(edges, min_size=10)
-        edges = edges.astype(np.uint8)
-
+        # Use edge drawing  
+        edges = (sobel(image) * (2**16 - 1)).astype(np.uint16)
+        edges = difference_of_gaussians(edges, 0.5, 20)
+        edges = unsharp_mask(edges, radius=2, amount=3)
+        
+        thresh = threshold_triangle(edges)
+        binary = edges > thresh
+        # Remove small objects
+        binary = remove_small_objects(binary, min_size=50, connectivity=2)
         outside_points = np.argwhere(mask == 0)
-        binary = correct_edges(outside_points, binary, max_distance=20)
+        binary = correct_edges(outside_points, binary)
+
+
         colored_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
         colored_image[binary == 1] = [0, 0, 255]
 
@@ -139,12 +138,12 @@ class ROI:
         ax[2].axis("off")
 
         # make a folder to save the image
-        output_folder = Path(f"./screening/{stem[:4]}/{self.name}").resolve()
+        output_folder = Path(f"screening/{stem[:4]}/{self.name}").resolve()
         output_folder.mkdir(exist_ok=True, parents=True)
         plt.tight_layout()
         plt.savefig(f"{str(output_folder)}/{stem}_thresholded.png", dpi=600)
         plt.savefig(f"{str(output_folder)}/{stem}_thresholded.svg", format="svg", dpi=600)
-        plt.close()
+        plt.close(fig)
 
         x_range = max_x - min_x
         y_range = max_y - min_y
