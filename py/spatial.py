@@ -2,13 +2,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle
 from pathlib import Path
-import umap
+import umap.umap_ as umap
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.metrics import confusion_matrix
 from sklearn.mixture import GaussianMixture
 import seaborn as sns
-
+from main import ROI
 
 class Cluster:
     def __init__(self, points, label, color, name):
@@ -36,7 +36,8 @@ class ExperimentalAnimal:
     def sum_project(self):
         """Use sum projection to create"""
         for roi in self.rois:
-            data = np.array(self.rois[roi]).astype(np.float64)
+            many_rois = [r.mask for r in self.rois[roi]]
+            data = np.array(many_rois).astype(np.float64)
             data = np.sum(data, axis=0, dtype=np.float64)
             data = np.sum(data, axis=0, dtype=np.float64)
             data /= np.max(data)
@@ -242,6 +243,8 @@ class AxonDataClustering:
             predicted_labels, self.roi_labels_age
         )
         age_predicted_labels = [cluster_labels_age[label] for label in predicted_labels]
+        if len(age_predicted_labels) != len(self.roi_labels_age):
+            age_predicted_labels = age_predicted_labels[:len(self.roi_labels_age)]
         conf_mat_age = confusion_matrix(self.roi_labels_age, age_predicted_labels)
         sns.heatmap(
             conf_mat_age,
@@ -297,6 +300,8 @@ class AxonDataClustering:
             predicted_labels, self.roi_labels_dv
         )
         dv_predicted_labels = [cluster_labels_dv[label] for label in predicted_labels]
+        # If labels are not same length
+        
         conf_mat_dv = confusion_matrix(self.roi_labels_dv, dv_predicted_labels)
         sns.heatmap(
             conf_mat_dv,
@@ -316,6 +321,8 @@ class AxonDataClustering:
             predicted_labels, self.roi_labels_age
         )
         age_predicted_labels = [cluster_labels_age[label] for label in predicted_labels]
+        if len(age_predicted_labels) != len(self.roi_labels_age):
+            age_predicted_labels = age_predicted_labels[:len(self.roi_labels_age)]
         conf_mat_age = confusion_matrix(self.roi_labels_age, age_predicted_labels)
         sns.heatmap(
             conf_mat_age,
@@ -342,13 +349,14 @@ def main():
         "old_data/raw_experiments_old_data.pkl"  # Adjust the path as necessary
     )
     p3or4to7_path = Path(r"D:\VSV raw data\raw_experiments_p3or4to7.pkl")
-    p5to9_path = Path(r"D:\VSV raw data\raw_experiments_p5to9.pkl")
-    p3to7_path = Path(r"D:\VSV raw data\raw_experiments_p3to7.pkl")
+    p5to9_path = Path(r"D:\VSV pxl count test\p12\rsat-main\raw_experiments_p12.pkl")
+    p3to7_path = Path(r"D:\VSV pxl count test\p3\rsat\raw_experiments_p3.pkl")
     # loader.load(p3to7_path, "p3to7")
     # loader.load(old_data_path, "adult")
     # loader.load(p3or4to7_path, "p3or4to7")
-    loader.load(p3to7_path, "p3to7")
-    loader.load(p5to9_path, "p5to9")
+    loader.load(p3to7_path, "p3")
+    loader.load(p5to9_path, "p12")
+
     # Just animals
     clustering = AxonDataClustering(loader.animals)
     clustering.prepare_data_per_animal()
