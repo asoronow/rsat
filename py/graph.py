@@ -210,6 +210,7 @@ def plotVerticalLine(experiments, output_path):
     )
 
     max_roi_count = 0
+    max_h2b_count = 0
     all_total_data = {}
     all_mean_data = {}
     all_std_err = {}
@@ -248,8 +249,12 @@ def plotVerticalLine(experiments, output_path):
                         if np.max(sum_projected) > max_roi_count:
                             max_roi_count = np.max(sum_projected)
 
+
                         # sum all h2b distribution vectors
                         sum_projected_h2b = np.sum(roi_h2b[i], axis=0)
+                        if np.max(sum_projected_h2b) > max_h2b_count:
+                            max_h2b_count = np.max(sum_projected_h2b)
+
                         # reverse the h2b distribution vector
                         all_h2b_data[roi_key] = sum_projected_h2b + all_h2b_data[roi_key]
 
@@ -283,9 +288,9 @@ def plotVerticalLine(experiments, output_path):
                 mean_data = all_mean_data[roi_key] / max_roi_count
                 std_err = all_std_err[roi_key] / max_roi_count
                 # P2P normalization of h2b
-                all_h2b_data[roi_key] = (all_h2b_data[roi_key] - np.min(all_h2b_data[roi_key])) / (np.max(all_h2b_data[roi_key]) - np.min(all_h2b_data[roi_key]))                  
+                all_h2b_data[roi_key] = all_h2b_data[roi_key] / np.max(all_h2b_data[roi_key])
                 # Layer boundaries and colors
-                layer_boundaries = [0, 5, 20, 35, 55, 80, 100]
+                layer_boundaries = [0, 10, 20, 35, 55, 95, 100]
                 layer_colors = ['darkred', 'pink', 'yellow', 'orange', 'lightblue', 'coral']
 
                 # Plot the data for each layer with the corresponding color
@@ -297,22 +302,22 @@ def plotVerticalLine(experiments, output_path):
                     # Determine the indices for the current layer
                     indices = (np.arange(101) >= start) & (np.arange(101) < end)
                     
+
+                        # add another x axis to the top of the plot for h2b count
+                    ax2 = ax.twiny()
+                    ax2.set_xlim(ax.get_xlim())
+                    ax2.set_xticks(ax.get_xticks())
+                    ax2.set_xticklabels(ax.get_xticklabels())
+                    ax2.set_xlabel("Normalized H2B Count")
+                    ax.barh(np.arange(101)[indices], all_h2b_data[roi_key][indices], color="green", hatch="///", alpha=0.5, zorder=1)
                     # Plot the mean data with the specific layer color
                     ax.fill_betweenx(
                         np.arange(101)[indices],
                         mean_data[indices],
-                        facecolor=color,
+                        color=color,
                         alpha=0.75,
+                        zorder=2,
                     )
-                    
-                    ax.barh(
-                        np.arange(101)[indices],
-                        all_h2b_data[roi_key][indices],
-                        color="green",
-                        hatch="////",
-                        alpha=0.5,
-                    )
-
                     # Plot the standard error
                     ax.fill_betweenx(
                         np.arange(101)[indices],
@@ -321,6 +326,7 @@ def plotVerticalLine(experiments, output_path):
                         color="none",
                         edgecolor="none",
                         facecolor="black",
+                        zorder=3,
                         alpha=0.25,
                     )
         
@@ -440,7 +446,7 @@ def process_roi(roi_path, tuned_parameters, args):
                                 # find the .pkl file that has the section number
                                 for file in directory.iterdir():
                                     if section_number in file.stem:
-                                        print("Found prediction, calculating H2B distribution...")
+                                        print(f"Found prediction for {roi.filename}, calculating H2B distribution...")
                                         with open(file, "rb") as f:
                                             prediction = pickle.load(f)
                                             h2b_centers = get_centers(prediction[0].boxes)
