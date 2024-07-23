@@ -5,7 +5,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from skimage.morphology import remove_small_objects, skeletonize
 import cv2
-from skimage.filters import sobel, unsharp_mask, threshold_otsu, threshold_triangle
+from skimage.filters import sobel, difference_of_gaussians, threshold_triangle, threshold_isodata
 from scipy.ndimage import binary_closing, binary_dilation
 
 def correct_edges(outside_points, binary_image, max_distance=20):
@@ -41,10 +41,27 @@ class ROI:
     def __init__(self, name, intensity, filename, coverage=None):
         self.name = name
         self.intensity = intensity
+        self.verts = list(intensity.keys())
         self.filename = filename
         self.coverage = coverage
         self.area = self.total_area()
+        self.h2b_distribution = np.zeros(101)
         self.mask = None
+
+
+    def calculate_h2b_distribution(self, h2b_centers):
+        """Calculate the distribution of H2B values in the ROI"""
+        points = set(self.intensity.keys())
+        min_y = min(vert[0] for vert in self.verts)
+        max_y = max(vert[0] for vert in self.verts)
+        h2b_distribution = np.zeros(101)
+        for j, i in points.intersection(h2b_centers):
+            # cacluate point in distribution
+            relative_y = (j - min_y) / (max_y - min_y)
+            h2b_distribution[int(np.floor(relative_y * 100))] += 1
+
+        self.h2b_distribution = h2b_distribution
+
 
     def mean(self):
         # find the mean intensity value
@@ -91,7 +108,6 @@ class ROI:
         max_x = max(vert[1] for vert in verts)
         min_y = min(vert[0] for vert in verts)
         max_y = max(vert[0] for vert in verts)
-
         # Filestem
         stem = Path(self.filename).stem
 
@@ -104,18 +120,16 @@ class ROI:
             mask[y, x] = 1 
         
         image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-        image = cv2.GaussianBlur(image, (3, 3), 0)
+        image = cv2.GaussianBlur(image, (7, 7), 2)
         # Use edge drawing  
-        edges = sobel(image)
+        edges = difference_of_gaussians(sobel(image), 1, 12)
+        # multiply edges and image
         thresh = threshold_triangle(edges)
         binary = edges > thresh
-        binary = remove_small_objects(binary, min_size=100)
-        binary = binary_closing(binary, structure=np.ones((3, 3)), iterations=2)
         binary = remove_small_objects(binary, min_size=100)
 
         # Remove small objects
         outside_points = np.argwhere(mask == 0)
-        binary = skeletonize(binary)
         binary = correct_edges(outside_points, binary)
 
         colored_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)

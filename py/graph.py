@@ -20,6 +20,12 @@ from skimage.morphology import binary_dilation, remove_small_objects
 
 TUNED_PARAMETERS = {"sigma": 0.5, "contrast": 1.0, "brightness": 0}
 
+class DetectionResult:
+    def __init__(self, boxes, scores, image_dimensions):
+        self.boxes = boxes
+        self.scores = scores
+        self.image_dimensions = image_dimensions
+
 def plot_with_params(intensity, sigma, contrast, brightness):
     verts = list(intensity.keys())
     min_x = min(vert[1] for vert in verts)
@@ -138,10 +144,10 @@ def plotVerticalLine(experiments, output_path):
     Creates vertical line plots based of the average intensity of each coordinate
     in an ROI across all brains in an age group.
     """
-
     all_animals = {}
     animal_sums = {}
     animal_areas = {}
+    all_h2b_data = {}
     normalization_counts = None
     h2b_counts = None
     # Load the normalization counts
@@ -175,6 +181,7 @@ def plotVerticalLine(experiments, output_path):
 
                 if roi not in all_animals:
                     all_animals[roi] = []
+                    all_h2b_data[roi] = np.zeros(101)
                 all_animals[roi].append(experiments[age_group][animal][roi])
 
     # Make the normalized grids and stderror grids
@@ -224,9 +231,11 @@ def plotVerticalLine(experiments, output_path):
                     roi_data = np.zeros((101))
                     all_mean_data[roi_key] = roi_data
                     all_std_err[roi_key] = roi_data
+                    all_h2b_data[roi_key] = roi_data
                 else:
                     roi_data = [[roi.mask for roi in animal] for animal in all_animals[roi_key]]
                     roi_area = [[roi.area for roi in animal] for animal in all_animals[roi_key]]
+                    roi_h2b = [[roi.h2b_distribution for roi in animal] for animal in all_animals[roi_key]]
                     animal_names = [Path(animal[0].filename).stem.split("_")[0] for animal in all_animals[roi_key]]
                     normal_data = np.zeros((len(roi_data), 101))
                     for i, cube in enumerate(roi_data):
@@ -238,6 +247,11 @@ def plotVerticalLine(experiments, output_path):
                         sum_projected = np.nan_to_num(sum_projected)
                         if np.max(sum_projected) > max_roi_count:
                             max_roi_count = np.max(sum_projected)
+
+                        # sum all h2b distribution vectors
+                        sum_projected_h2b = np.sum(roi_h2b[i], axis=0)
+                        # reverse the h2b distribution vector
+                        all_h2b_data[roi_key] = sum_projected_h2b + all_h2b_data[roi_key]
 
                         sum_projected = sum_projected[::-1]
                         if normalization_counts is not None:               
@@ -268,20 +282,48 @@ def plotVerticalLine(experiments, output_path):
                 roi_key = roi.lower()
                 mean_data = all_mean_data[roi_key] / max_roi_count
                 std_err = all_std_err[roi_key] / max_roi_count
-                ax.barh(
-                    np.arange(101),
-                    mean_data,
-                    color="red",
-                )
-                # Plot the standard error
-                ax.fill_betweenx(
-                    np.arange(101),
-                    mean_data - std_err,
-                    mean_data + std_err,
-                    color="black",
-                    alpha=0.3,
-                )
+                # P2P normalization of h2b
+                all_h2b_data[roi_key] = (all_h2b_data[roi_key] - np.min(all_h2b_data[roi_key])) / (np.max(all_h2b_data[roi_key]) - np.min(all_h2b_data[roi_key]))                  
+                # Layer boundaries and colors
+                layer_boundaries = [0, 5, 20, 35, 55, 80, 100]
+                layer_colors = ['darkred', 'pink', 'yellow', 'orange', 'lightblue', 'coral']
 
+                # Plot the data for each layer with the corresponding color
+                for i in range(len(layer_boundaries) - 1):
+                    start = layer_boundaries[i]
+                    end = layer_boundaries[i + 1]
+                    color = layer_colors[i]
+                    
+                    # Determine the indices for the current layer
+                    indices = (np.arange(101) >= start) & (np.arange(101) < end)
+                    
+                    # Plot the mean data with the specific layer color
+                    ax.fill_betweenx(
+                        np.arange(101)[indices],
+                        mean_data[indices],
+                        facecolor=color,
+                        alpha=0.75,
+                    )
+                    
+                    ax.barh(
+                        np.arange(101)[indices],
+                        all_h2b_data[roi_key][indices],
+                        color="green",
+                        hatch="////",
+                        alpha=0.5,
+                    )
+
+                    # Plot the standard error
+                    ax.fill_betweenx(
+                        np.arange(101)[indices],
+                        mean_data[indices] - std_err[indices],
+                        mean_data[indices] + std_err[indices],
+                        color="none",
+                        edgecolor="none",
+                        facecolor="black",
+                        alpha=0.25,
+                    )
+        
     plt.tight_layout()
     plt.savefig(
         output_path / f"combined_{age_group}.svg",
@@ -376,7 +418,7 @@ def plotVerticalLine(experiments, output_path):
             writer.writerow([animal] + row_data)
 
 
-def process_roi(roi_path, tuned_parameters):
+def process_roi(roi_path, tuned_parameters, args):
     """
     This function is designed to be run in parallel. It loads a ROI,
     processes it by calling create_axon_mask, and then returns the processed ROI.
@@ -385,15 +427,40 @@ def process_roi(roi_path, tuned_parameters):
     try:
         # Assuming loadROI loads a single ROI from the given path.
         roi = load_roi_from_file(roi_path)
-        animal_name = Path(roi_path).stem.split("_")[0]
+        animal_name, section_number, area_name = Path(roi_path).stem.split("_")
         if roi is not None:
             print(f"Preprocessing {roi.filename}")
-            roi.create_axon_mask(tuned_parameters)
+            if args.predictions is not None:
+                prediction_path = Path(args.predictions)
+                # check if a folder with animal name exists
+                if prediction_path.is_dir():
+                    for directory in prediction_path.iterdir():
+                        if directory.is_dir():
+                            if directory.stem == animal_name:
+                                # find the .pkl file that has the section number
+                                for file in directory.iterdir():
+                                    if section_number in file.stem:
+                                        print("Found prediction, calculating H2B distribution...")
+                                        with open(file, "rb") as f:
+                                            prediction = pickle.load(f)
+                                            h2b_centers = get_centers(prediction[0].boxes)
+                                            roi.calculate_h2b_distribution(h2b_centers)
+
+            roi.create_axon_mask(tuned_parameters) # pass in tuned parameters
             return animal_name, roi.name.lower(), roi
         
     except Exception as e:
         print(f"Error processing ROI: {roi_path}. Error: {str(e)}")
     return None, None, None
+
+def get_centers(boxes):
+        centers = []
+        for box in boxes:
+            x1, y1, x2, y2 = box
+            center_x = (x1 + x2) // 2
+            center_y = (y1 + y2) // 2
+            centers.append((center_x, center_y))
+        return centers
 
 if __name__ == "__main__":
     """
@@ -419,6 +486,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, help="Output directory")
     parser.add_argument("--counts", type=str, help="Path to counts csv file for normalization")
     parser.add_argument("--tune", type=str, help="Path to a pkl to tune parameters for normalization")
+    parser.add_argument("--predictions", type=str, help="Path to predictions pkls file for integration of depth for h2b")
     parser.add_argument(
         "--regraph",
         action="store_true",
@@ -465,22 +533,22 @@ if __name__ == "__main__":
         plotVerticalLine(experiments_pkl, output_path)
         quit()
 
-    if args.tune:
-        # load individual pkl
-        to_tune = load_roi_from_file(args.tune)
-        print(f"Parameters Before: Sigma={TUNED_PARAMETERS['sigma']}, Contrast={TUNED_PARAMETERS['contrast']}, Brightness={TUNED_PARAMETERS['brightness']}")
-        visualize_and_tweak_roi(to_tune)
-        print(f"Parameters After: Sigma={TUNED_PARAMETERS['sigma']}, Contrast={TUNED_PARAMETERS['contrast']}, Brightness={TUNED_PARAMETERS['brightness']}")
+    # if args.tune:
+    #     # load individual pkl
+    #     to_tune = load_roi_from_file(args.tune)
+    #     print(f"Parameters Before: Sigma={TUNED_PARAMETERS['sigma']}, Contrast={TUNED_PARAMETERS['contrast']}, Brightness={TUNED_PARAMETERS['brightness']}")
+    #     visualize_and_tweak_roi(to_tune)
+    #     print(f"Parameters After: Sigma={TUNED_PARAMETERS['sigma']}, Contrast={TUNED_PARAMETERS['contrast']}, Brightness={TUNED_PARAMETERS['brightness']}")
 
-        # ask user if they want to continue
-        while True:
-            should_continue = input("Do you want to continue? (y/n): ")
-            if should_continue.lower() == "y":
-                break
-            elif should_continue.lower() == "n":
-                quit()
-            else:
-                print("Please enter either 'y' or 'n'.")
+    #     # ask user if they want to continue
+    #     while True:
+    #         should_continue = input("Do you want to continue? (y/n): ")
+    #         if should_continue.lower() == "y":
+    #             break
+    #         elif should_continue.lower() == "n":
+    #             quit()
+    #         else:
+    #             print("Please enter either 'y' or 'n'.")
 
     # Get subdirectories from input
     subs_dirs = [
@@ -494,7 +562,7 @@ if __name__ == "__main__":
     num_rois = len(roi_paths)
     c = 0
     with Pool(8) as pool:
-        results = pool.starmap(process_roi, [(roi_path, TUNED_PARAMETERS) for roi_path in roi_paths])
+        results = pool.starmap(process_roi, [(roi_path, TUNED_PARAMETERS, args) for roi_path in roi_paths])
 
     # Add to experiments dict under age group (args.input) and animal name
     for animal_name, roi_name, roi in results:
