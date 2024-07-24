@@ -5,7 +5,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from skimage.morphology import remove_small_objects, skeletonize
 import cv2
-from skimage.filters import sobel, difference_of_gaussians, threshold_triangle, threshold_isodata
+from skimage.filters import sobel, difference_of_gaussians, threshold_triangle, unsharp_mask
 from scipy.ndimage import binary_closing, binary_dilation
 
 def correct_edges(outside_points, binary_image, max_distance=20):
@@ -122,15 +122,14 @@ class ROI:
         image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
         image = cv2.GaussianBlur(image, (7, 7), 2)
         # Use edge drawing  
-        edges = difference_of_gaussians(sobel(image), 1, 12)
-        # multiply edges and image
+        edges = difference_of_gaussians(sobel(image), 6, 6 * 5)
+        edges = unsharp_mask(edges, radius=3, amount=2)
         thresh = threshold_triangle(edges)
         binary = edges > thresh
-        binary = remove_small_objects(binary, min_size=100)
-
+        binary = remove_small_objects(binary, min_size=200)
         # Remove small objects
         outside_points = np.argwhere(mask == 0)
-        binary = correct_edges(outside_points, binary)
+        binary = correct_edges(outside_points, binary, max_distance=100)
 
         colored_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
         colored_image[binary == 1] = [0, 0, 255]
