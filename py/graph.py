@@ -230,9 +230,15 @@ def plotVerticalLine(experiments, output_path):
                     normal_data = np.zeros((len(roi_data), 101))
                     for i, cube in enumerate(roi_data):
                         # Sum project the grids
+                        print("original shape")
+                        print(np.array(cube).shape)
                         sum_projected = np.sum(cube, axis=0)
+                        print("sum projected shape #1")
+                        print(sum_projected.shape)
                         # cv2.imwrite(f"{roi_key}_{i}.png", sum_projected)
                         sum_projected = np.sum(sum_projected, axis=0)
+                        print("sum projected shape #2")
+                        print(sum_projected.shape)
                         # Set all nans to 0
                         sum_projected = np.nan_to_num(sum_projected)
                         if np.max(sum_projected) > max_roi_count:
@@ -276,14 +282,14 @@ def plotVerticalLine(experiments, output_path):
             if roi:
                 ax = axes[row_idx, col_idx]
                 roi_key = roi.lower()
+                
                 mean_data = all_mean_data[roi_key] / max_roi_count
                 std_err = all_std_err[roi_key] / max_roi_count
                 # P2P normalization of h2b
-                all_h2b_data[roi_key] = all_h2b_data[roi_key] / max_h2b_count
+                if max_h2b_count > 0:
+                    all_h2b_data[roi_key] = all_h2b_data[roi_key] / max_h2b_count
                 # Layer boundaries and colors
-                    
-
-                    # add another x axis to the top of the plot for h2b count
+                # add another x axis to the top of the plot for h2b count
                 ax2 = ax.twiny()
                 ax2.set_xlim(ax.get_xlim())
                 ax2.set_xticks(ax.get_xticks())
