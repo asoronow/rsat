@@ -281,50 +281,39 @@ def plotVerticalLine(experiments, output_path):
                 # P2P normalization of h2b
                 all_h2b_data[roi_key] = all_h2b_data[roi_key] / max_h2b_count
                 # Layer boundaries and colors
-                layer_boundaries = [0, 10, 20, 35, 55, 95, 100]
-                layer_colors = ['darkred', 'pink', 'yellow', 'orange', 'lightblue', 'coral']
-
-                # Plot the data for each layer with the corresponding color
-                for i in range(len(layer_boundaries) - 1):
-                    start = layer_boundaries[i]
-                    end = layer_boundaries[i + 1]
-                    color = layer_colors[i]
-                    
-                    # Determine the indices for the current layer
-                    indices = (np.arange(101) >= start) & (np.arange(101) < end)
                     
 
-                        # add another x axis to the top of the plot for h2b count
-                    ax2 = ax.twiny()
-                    ax2.set_xlim(ax.get_xlim())
-                    ax2.set_xticks(ax.get_xticks())
-                    ax2.set_xticklabels(ax.get_xticklabels())
-                    ax2.set_xlabel("Normalized H2B Count")
-                    ax.fill_betweenx(
-                        np.arange(101)[indices],
-                        all_h2b_data[roi_key][indices],
-                        color="green",
-                        zorder=1,
-                    )
-                    # Plot the mean data with the specific layer color
-                    ax.fill_betweenx(
-                        np.arange(101)[indices],
-                        mean_data[indices],
-                        color=color,
-                        alpha=0.75,
-                        zorder=2,
-                    )
-                    # Plot the standard error
-                    ax.fill_betweenx(
-                        np.arange(101)[indices],
-                        mean_data[indices] - std_err[indices],
-                        mean_data[indices] + std_err[indices],
-                        color="none",
-                        edgecolor="none",
-                        facecolor="black",
-                        zorder=3,
-                        alpha=0.25,
-                    )
+                    # add another x axis to the top of the plot for h2b count
+                ax2 = ax.twiny()
+                ax2.set_xlim(ax.get_xlim())
+                ax2.set_xticks(ax.get_xticks())
+                ax2.set_xticklabels(ax.get_xticklabels())
+                ax2.set_xlabel("Normalized H2B Count")
+                ax.fill_betweenx(
+                    np.arange(101),
+                    all_h2b_data[roi_key],
+                    color="green",
+                    zorder=1,
+                )
+                # Plot the mean data with the specific layer color
+                ax.fill_betweenx(
+                    np.arange(101),
+                    mean_data,
+                    color="red",
+                    alpha=0.75,
+                    zorder=2,
+                )
+                # Plot the standard error
+                ax.fill_betweenx(
+                    np.arange(101),
+                    mean_data - std_err,
+                    mean_data + std_err,
+                    color="none",
+                    edgecolor="none",
+                    facecolor="black",
+                    zorder=3,
+                    alpha=0.25,
+                )
         
     plt.tight_layout()
     plt.savefig(
