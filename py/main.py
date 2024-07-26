@@ -5,8 +5,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from skimage.morphology import remove_small_objects, skeletonize
 import cv2
-from skimage.filters import  threshold_otsu, gaussian, laplace, sobel
-from scipy.ndimage import  binary_dilation, convolve
+from skimage.filters import  gaussian, hessian, sobel
+from scipy.ndimage import  binary_dilation, binary_closing
 
 def correct_edges(outside_points, binary_image, max_distance=20):
     """
@@ -119,16 +119,16 @@ class ROI:
             y, x = vert[0] - min_y, vert[1] - min_x
             image[y, x] = self.intensity[vert]
             mask[y, x] = 1
-
         # Apply contrast and brightness adjustments
         image = np.clip(tuned_params["contrast"] * image + tuned_params["brightness"], 0, 255).astype(np.uint8)
+        image = (image).astype(np.float32) / 255.0
+        # Get image derivativ
+        edges = hessian(image)
+        # convert hessian to binary
+        edges = edges < 1.0
+        binary = binary_closing(edges, iterations=5)
         # Normalize the image
-        image = (image - np.min(image)) / (np.max(image) - np.min(image)).astype(np.float64)
-        gauss = gaussian(image, sigma=tuned_params["sigma"])
-        edges = sobel(gauss, mask=mask)
-        edges /= 8
-        thresh = threshold_otsu(edges)
-        binary = edges > thresh
+        binary = remove_small_objects(binary, min_size=50)
         outside_points = np.argwhere(mask == 0)
         binary = correct_edges(outside_points, binary, max_distance=20)
         colored_image = cv2.cvtColor(image.astype(np.uint8) * 255, cv2.COLOR_GRAY2BGR)
@@ -162,7 +162,7 @@ class ROI:
 
         x_range = max_x - min_x
         y_range = max_y - min_y
-        image = cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_GRAY2BGR)
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
         cv2.imwrite(f"{str(output_folder)}/{stem}_axon_mask.png", colored_image)
 
         # Normalize the coordinates to fit into a 101x101 grid
@@ -173,7 +173,7 @@ class ROI:
             if 0 < norm_y < 100 and 0 < norm_x < 100:
                 normalized_mask[norm_y, norm_x] += 1 if (binary[y, x] == 1) else 0
                 image[y, x] = (0, 0, 255) if (binary[y, x] == 1) else (0, 255, 0)
-        cv2.imwrite(f"{str(output_folder)}/{stem}_colorized.png", image)
+        # cv2.imwrite(f"{str(output_folder)}/{stem}_colorized.png", image)
 
         # dump intensity data to save memory
         self.intensity = None

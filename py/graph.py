@@ -230,15 +230,11 @@ def plotVerticalLine(experiments, output_path):
                     normal_data = np.zeros((len(roi_data), 101))
                     for i, cube in enumerate(roi_data):
                         # Sum project the grids
-                        print("original shape")
-                        print(np.array(cube).shape)
                         sum_projected = np.sum(cube, axis=0)
-                        print("sum projected shape #1")
-                        print(sum_projected.shape)
+                     
                         # cv2.imwrite(f"{roi_key}_{i}.png", sum_projected)
                         sum_projected = np.sum(sum_projected, axis=0)
-                        print("sum projected shape #2")
-                        print(sum_projected.shape)
+                      
                         # Set all nans to 0
                         sum_projected = np.nan_to_num(sum_projected)
                         if np.max(sum_projected) > max_roi_count:
@@ -255,7 +251,9 @@ def plotVerticalLine(experiments, output_path):
                         # reverse the h2b distribution vector
                         all_h2b_data[roi_key] = sum_projected_h2b + all_h2b_data[roi_key]
 
+                        # reverse the vector
                         sum_projected = sum_projected[::-1]
+                        all_h2b_data[roi_key] = sum_projected_h2b[::-1]
                         if normalization_counts is not None:               
                             animal_sums[animal_names[i]][roi_key] = sum_projected / normalization_counts[animal_names[i]]
                             # print(f"Sum projected {roi_key} for {animal_names[i]}: {np.sum(sum_projected)}")
