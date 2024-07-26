@@ -5,8 +5,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from skimage.morphology import remove_small_objects, skeletonize
 import cv2
-from skimage.filters import sobel, difference_of_gaussians, threshold_triangle, unsharp_mask
-from scipy.ndimage import binary_closing, binary_dilation
+from skimage.filters import  threshold_otsu, gaussian, laplace, sobel
+from scipy.ndimage import  binary_dilation, convolve
 
 def correct_edges(outside_points, binary_image, max_distance=20):
     """
@@ -108,30 +108,30 @@ class ROI:
         max_x = max(vert[1] for vert in verts)
         min_y = min(vert[0] for vert in verts)
         max_y = max(vert[0] for vert in verts)
+
         # Filestem
         stem = Path(self.filename).stem
 
         # Create an image of the ROI
-        image = np.zeros((max_y - min_y + 1, max_x - min_x + 1), dtype=np.uint16)
+        image = np.zeros((max_y - min_y + 1, max_x - min_x + 1), dtype=np.uint8)
         mask = np.zeros_like(image)
         for vert in verts:
             y, x = vert[0] - min_y, vert[1] - min_x
             image[y, x] = self.intensity[vert]
-            mask[y, x] = 1 
-        
-        image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-        image = cv2.GaussianBlur(image, (7, 7), 2)
-        # Use edge drawing  
-        edges = difference_of_gaussians(sobel(image), 6, 6 * 5)
-        edges = unsharp_mask(edges, radius=3, amount=2)
-        thresh = threshold_triangle(edges)
-        binary = edges > thresh
-        binary = remove_small_objects(binary, min_size=200)
-        # Remove small objects
-        outside_points = np.argwhere(mask == 0)
-        binary = correct_edges(outside_points, binary, max_distance=100)
+            mask[y, x] = 1
 
-        colored_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        # Apply contrast and brightness adjustments
+        image = np.clip(tuned_params["contrast"] * image + tuned_params["brightness"], 0, 255).astype(np.uint8)
+        # Normalize the image
+        image = (image - np.min(image)) / (np.max(image) - np.min(image)).astype(np.float64)
+        gauss = gaussian(image, sigma=tuned_params["sigma"])
+        edges = sobel(gauss, mask=mask)
+        edges /= 8
+        thresh = threshold_otsu(edges)
+        binary = edges > thresh
+        outside_points = np.argwhere(mask == 0)
+        binary = correct_edges(outside_points, binary, max_distance=20)
+        colored_image = cv2.cvtColor(image.astype(np.uint8) * 255, cv2.COLOR_GRAY2BGR)
         colored_image[binary == 1] = [0, 0, 255]
 
         plt.rcParams["font.size"] = 12
@@ -153,12 +153,12 @@ class ROI:
         ax[2].axis("off")
 
         # make a folder to save the image
-        output_folder = Path(f"screening/{stem[:4]}/{self.name}").resolve()
+        output_folder = Path(f"./screening/{stem[:4]}/{self.name}").resolve()
         output_folder.mkdir(exist_ok=True, parents=True)
         plt.tight_layout()
         plt.savefig(f"{str(output_folder)}/{stem}_thresholded.png", dpi=600)
         plt.savefig(f"{str(output_folder)}/{stem}_thresholded.svg", format="svg", dpi=600)
-        plt.close(fig)
+        plt.close()
 
         x_range = max_x - min_x
         y_range = max_y - min_y

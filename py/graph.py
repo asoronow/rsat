@@ -16,9 +16,11 @@ import cv2
 import tkinter as tk
 from tkinter import Button
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from skimage.morphology import binary_dilation, remove_small_objects
+from skimage.filters import threshold_otsu, gaussian, sobel
+from skimage.morphology import remove_small_objects
 
-TUNED_PARAMETERS = {"sigma": 0.5, "contrast": 1.0, "brightness": 0}
+
+TUNED_PARAMETERS = {"sigma": 1.6, "contrast": 1.0, "brightness": 0}
 
 class DetectionResult:
     def __init__(self, boxes, scores, image_dimensions):
@@ -28,11 +30,13 @@ class DetectionResult:
 
 def plot_with_params(intensity, sigma, contrast, brightness):
     verts = list(intensity.keys())
+    # Find the bounding box for the ROI
     min_x = min(vert[1] for vert in verts)
     max_x = max(vert[1] for vert in verts)
     min_y = min(vert[0] for vert in verts)
     max_y = max(vert[0] for vert in verts)
 
+    # Create an image of the ROI
     image = np.zeros((max_y - min_y + 1, max_x - min_x + 1), dtype=np.uint8)
     mask = np.zeros_like(image)
     for vert in verts:
@@ -42,27 +46,12 @@ def plot_with_params(intensity, sigma, contrast, brightness):
 
     # Apply contrast and brightness adjustments
     image = np.clip(contrast * image + brightness, 0, 255).astype(np.uint8)
-    image = (image / np.max(image) * 255).astype(np.uint8)
-
-    # Apply Gaussian blur to gradients
-    gaussA = cv2.GaussianBlur(image, (7, 7), 0.5)
-    gaussB = cv2.GaussianBlur(image, (7, 7), 20)
-    
-    # Difference of Gaussian (DoG)
-    dof = gaussB - gaussA
-    dof = cv2.normalize(dof, None, 0, 1, cv2.NORM_MINMAX).astype(np.uint8)
-    
-    # Threshold the DoG result
-    edges = cv2.threshold(dof, 0, 1, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
-    edges = binary_dilation(edges, structure=np.ones((2, 2)), iterations=1)
-
-    # Remove small objects
-    edges = remove_small_objects(edges, min_size=50)
-    edges = edges.astype(np.uint8) * 255
-    
-    # Correct for edge points near the outside of the ROI
+    gauss = gaussian(image, sigma=sigma)
+    edges = sobel(gauss, mask=mask)
+    thresh = threshold_otsu(edges)
+    binary = edges > thresh
     outside_points = np.argwhere(mask == 0)
-    edges = correct_edges(outside_points, edges, max_distance=20)
+    binary = correct_edges(outside_points, binary, max_distance=20)
 
     # Color the edges in red
     colored_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
@@ -74,11 +63,11 @@ def plot_with_params(intensity, sigma, contrast, brightness):
     ax[0].set_title("Original Adjusted")
     ax[0].axis("off")
 
-    ax[1].imshow(dof, cmap=plt.cm.gray)
+    ax[1].imshow(edges, cmap=plt.cm.gray)
     ax[1].set_title("Edge Detection")
     ax[1].axis("off")
 
-    ax[2].imshow(edges * 255, cmap=plt.cm.gray)
+    ax[2].imshow(binary * 255, cmap=plt.cm.gray)
     ax[2].set_title("Thresholded")
     ax[2].axis("off")
 
