@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import pickle
 import argparse
+import traceback
 import matplotlib.pyplot as plt
 from main import ROI, loadROI, load_roi_from_file, correct_edges
 from multiprocessing import Pool
@@ -448,6 +449,7 @@ def process_roi(roi_path, tuned_parameters, args):
         
     except Exception as e:
         print(f"Error processing ROI: {roi_path}. Error: {str(e)}")
+        print(traceback.format_exc())
     return None, None, None
 
 def get_centers(boxes):

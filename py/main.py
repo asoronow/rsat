@@ -2,6 +2,7 @@ import numpy as np
 import os
 import pickle
 from pathlib import Path
+import traceback
 import matplotlib.pyplot as plt
 from skimage.morphology import remove_small_objects, skeletonize
 import cv2
@@ -171,10 +172,9 @@ class ROI:
             norm_y, norm_x = int(y / y_range * 100), int(x / x_range * 100)
             if 0 < norm_y < 100 and 0 < norm_x < 100:
                 normalized_mask[norm_y, norm_x] += 1 if (binary[y, x] == 1) else 0
-                image[y, x] = (0, 0, 255) if (binary[y, x] == 1) else (0, 255, 0)
         # cv2.imwrite(f"{str(output_folder)}/{stem}_colorized.png", image)
 
-        # dump intensity data to save memory
+        # dump intensity data to save memor
         self.intensity = None
         self.verts = None
         self.mask = normalized_mask
