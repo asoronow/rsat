@@ -16,8 +16,8 @@ import cv2
 import tkinter as tk
 from tkinter import Button
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from skimage.filters import threshold_otsu, gaussian, sobel
-from skimage.morphology import remove_small_objects
+from skimage.filters import meijering, threshold_triangle
+from skimage.morphology import remove_small_objects, skeletonize
 
 
 TUNED_PARAMETERS = {"sigma": 1.6, "contrast": 1.0, "brightness": 0}
@@ -46,19 +46,18 @@ def plot_with_params(intensity, sigma, contrast, brightness):
 
     # Apply contrast and brightness adjustments
     image = np.clip(contrast * image + brightness, 0, 255).astype(np.uint8)
-    gauss = gaussian(image, sigma=sigma)
-    edges = sobel(gauss, mask=mask)
-    thresh = threshold_otsu(edges)
-    binary = edges > thresh
+    edges = meijering(image, range(0,5), black_ridges=False)
+    binary = edges > threshold_triangle(edges)
+    binary = remove_small_objects(binary)
+    binary = skeletonize(binary)
+
+    # Normalize the image
     outside_points = np.argwhere(mask == 0)
     binary = correct_edges(outside_points, binary, max_distance=20)
 
-    # Color the edges in red
-    colored_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-    colored_image[edges == 1] = [0, 0, 255]
-
     fig, axes = plt.subplots(ncols=3, figsize=(12, 4))
     ax = axes.ravel()
+
     ax[0].imshow(image, cmap=plt.cm.gray)
     ax[0].set_title("Original Adjusted")
     ax[0].axis("off")
@@ -225,7 +224,13 @@ def plotVerticalLine(experiments, output_path):
                 else:
                     roi_data = [[roi.mask for roi in animal] for animal in all_animals[roi_key]]
                     roi_area = [[roi.area for roi in animal] for animal in all_animals[roi_key]]
-                    roi_h2b = [[roi.h2b_distribution for roi in animal] for animal in all_animals[roi_key]]
+
+                    # Backwards compatibility
+                    if all_animals[roi_key][0][0].h2b_distribution is not None:
+                        roi_h2b = [[roi.h2b_distribution for roi in animal] for animal in all_animals[roi_key]]
+                    else:
+                        roi_h2b = None
+
                     animal_names = [Path(animal[0].filename).stem.split("_")[0] for animal in all_animals[roi_key]]
                     normal_data = np.zeros((len(roi_data), 101))
                     for i, cube in enumerate(roi_data):
@@ -240,20 +245,17 @@ def plotVerticalLine(experiments, output_path):
                         if np.max(sum_projected) > max_roi_count:
                             max_roi_count = np.max(sum_projected)
 
-
-                        # sum all h2b distribution vectors
-                        sum_projected_h2b = np.sum(roi_h2b[i], axis=0)
-                        if np.max(sum_projected_h2b) > max_h2b_count:
-                            max_h2b_count = np.max(sum_projected_h2b)
-
-
-
-                        # reverse the h2b distribution vector
-                        all_h2b_data[roi_key] = sum_projected_h2b + all_h2b_data[roi_key]
+                        if roi_h2b is not None:
+                            # sum all h2b distribution vectors
+                            sum_projected_h2b = np.sum(roi_h2b[i], axis=0)
+                            if np.max(sum_projected_h2b) > max_h2b_count:
+                                max_h2b_count = np.max(sum_projected_h2b)
+                            # reverse the h2b distribution vector
+                            all_h2b_data[roi_key] = sum_projected_h2b + all_h2b_data[roi_key]
+                            all_h2b_data[roi_key] = sum_projected_h2b[::-1]
 
                         # reverse the vector
                         sum_projected = sum_projected[::-1]
-                        all_h2b_data[roi_key] = sum_projected_h2b[::-1]
                         if normalization_counts is not None:               
                             animal_sums[animal_names[i]][roi_key] = sum_projected / normalization_counts[animal_names[i]]
                             # print(f"Sum projected {roi_key} for {animal_names[i]}: {np.sum(sum_projected)}")
@@ -528,22 +530,22 @@ if __name__ == "__main__":
         plotVerticalLine(experiments_pkl, output_path)
         quit()
 
-    # if args.tune:
-    #     # load individual pkl
-    #     to_tune = load_roi_from_file(args.tune)
-    #     print(f"Parameters Before: Sigma={TUNED_PARAMETERS['sigma']}, Contrast={TUNED_PARAMETERS['contrast']}, Brightness={TUNED_PARAMETERS['brightness']}")
-    #     visualize_and_tweak_roi(to_tune)
-    #     print(f"Parameters After: Sigma={TUNED_PARAMETERS['sigma']}, Contrast={TUNED_PARAMETERS['contrast']}, Brightness={TUNED_PARAMETERS['brightness']}")
+    if args.tune:
+        # load individual pkl
+        to_tune = load_roi_from_file(args.tune)
+        print(f"Parameters Before: Sigma={TUNED_PARAMETERS['sigma']}, Contrast={TUNED_PARAMETERS['contrast']}, Brightness={TUNED_PARAMETERS['brightness']}")
+        visualize_and_tweak_roi(to_tune)
+        print(f"Parameters After: Sigma={TUNED_PARAMETERS['sigma']}, Contrast={TUNED_PARAMETERS['contrast']}, Brightness={TUNED_PARAMETERS['brightness']}")
 
-    #     # ask user if they want to continue
-    #     while True:
-    #         should_continue = input("Do you want to continue? (y/n): ")
-    #         if should_continue.lower() == "y":
-    #             break
-    #         elif should_continue.lower() == "n":
-    #             quit()
-    #         else:
-    #             print("Please enter either 'y' or 'n'.")
+        # ask user if they want to continue
+        while True:
+            should_continue = input("Do you want to continue? (y/n): ")
+            if should_continue.lower() == "y":
+                break
+            elif should_continue.lower() == "n":
+                quit()
+            else:
+                print("Please enter either 'y' or 'n'.")
 
     # Get subdirectories from input
     subs_dirs = [

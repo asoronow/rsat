@@ -5,7 +5,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from skimage.morphology import remove_small_objects, skeletonize
 import cv2
-from skimage.filters import  gaussian, hessian, sobel
+from skimage.filters import  meijering, threshold_triangle
 from scipy.ndimage import  binary_dilation, binary_closing
 
 def correct_edges(outside_points, binary_image, max_distance=20):
@@ -122,17 +122,14 @@ class ROI:
         # Apply contrast and brightness adjustments
         image = np.clip(tuned_params["contrast"] * image + tuned_params["brightness"], 0, 255).astype(np.uint8)
         image = (image).astype(np.float32) / 255.0
-        # Get image derivativ
-        edges = hessian(image)
-        # convert hessian to binary
-        edges = edges < 1.0
-        binary = binary_closing(edges, iterations=5)
+        edges = meijering(image, range(0, 5), black_ridges=False)
+        binary = edges > threshold_triangle(edges)
+        binary = remove_small_objects(binary)
+        binary = skeletonize(binary)
+
         # Normalize the image
-        binary = remove_small_objects(binary, min_size=50)
         outside_points = np.argwhere(mask == 0)
         binary = correct_edges(outside_points, binary, max_distance=20)
-        colored_image = cv2.cvtColor(image.astype(np.uint8) * 255, cv2.COLOR_GRAY2BGR)
-        colored_image[binary == 1] = [0, 0, 255]
 
         plt.rcParams["font.size"] = 12
         # export text
@@ -157,12 +154,14 @@ class ROI:
         output_folder.mkdir(exist_ok=True, parents=True)
         plt.tight_layout()
         plt.savefig(f"{str(output_folder)}/{stem}_thresholded.png", dpi=600)
-        plt.savefig(f"{str(output_folder)}/{stem}_thresholded.svg", format="svg", dpi=600)
+        # plt.savefig(f"{str(output_folder)}/{stem}_thresholded.svg", format="svg", dpi=600)
         plt.close()
 
         x_range = max_x - min_x
         y_range = max_y - min_y
-        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        colored_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        colored_image[binary == 1] = (0, 0, 255)
         cv2.imwrite(f"{str(output_folder)}/{stem}_axon_mask.png", colored_image)
 
         # Normalize the coordinates to fit into a 101x101 grid
