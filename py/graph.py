@@ -17,7 +17,7 @@ import cv2
 import tkinter as tk
 from tkinter import Button
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from skimage.filters import meijering, threshold_triangle
+from skimage.filters import  threshold_triangle, sobel, gaussian
 from skimage.morphology import remove_small_objects, skeletonize
 
 
@@ -47,10 +47,12 @@ def plot_with_params(intensity, sigma, contrast, brightness):
 
     # Apply contrast and brightness adjustments
     image = np.clip(contrast * image + brightness, 0, 255).astype(np.uint8)
-    edges = meijering(image, range(0,5), black_ridges=False)
+    image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX)
+    smoothed = gaussian(image, sigma=sigma)
+    edges = sobel(smoothed)
+    edges = (edges - edges.min()) / (edges.max() - edges.min())
     binary = edges > threshold_triangle(edges)
     binary = remove_small_objects(binary)
-    binary = skeletonize(binary)
 
     # Normalize the image
     outside_points = np.argwhere(mask == 0)
@@ -401,7 +403,15 @@ def plotVerticalLine(experiments, output_path):
                 else:
                     row_data.append(0)
             writer.writerow([animal] + row_data)
-    
+
+    # write each animals depth plots to csv
+    with open(output_path / "depth.csv", "w", newline='') as f:
+        writer = csv.writer(f)
+        for key, value in all_mean_data.items():
+            mean_data = value / max_roi_count
+            writer.writerow([key] + [mean_data[i] for i in range(len(mean_data))])
+        
+
     # write each animal's area for each roi
     with open(output_path / "area.csv", "w", newline='') as f:
         writer = csv.writer(f)

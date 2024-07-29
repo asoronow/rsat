@@ -4,10 +4,10 @@ import pickle
 from pathlib import Path
 import traceback
 import matplotlib.pyplot as plt
-from skimage.morphology import remove_small_objects, skeletonize, local_minima
+from skimage.morphology import remove_small_objects
 import cv2
-from skimage.filters import  meijering, threshold_li, gaussian
-from scipy.ndimage import  binary_dilation
+from skimage.filters import gaussian, sobel, threshold_triangle
+from scipy.ndimage import  binary_dilation, binary_closing
 def correct_edges(outside_points, binary_image, max_distance=20):
     """
     Fast version of correct_edges function.
@@ -122,11 +122,11 @@ class ROI:
         # Apply contrast and brightness adjustments
         image = np.clip(tuned_params["contrast"] * image + tuned_params["brightness"], 0, 255).astype(np.uint8)
         image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX)
-        smoothed = gaussian(image, tuned_params["sigma"])
-        edges = meijering(smoothed, range(1,5), black_ridges=False)
-        edges = (edges - np.min(edges)) / (np.max(edges) - np.min(edges))
-        binary = edges > threshold_li(edges)
-        binary = remove_small_objects(binary, 200)
+        smoothed = gaussian(image, sigma=tuned_params["sigma"])
+        edges = sobel(smoothed)
+        edges = (edges - edges.min()) / (edges.max() - edges.min())
+        binary = edges > threshold_triangle(edges)
+        binary = remove_small_objects(binary)
         # Normalize the image
         outside_points = np.argwhere(mask == 0)
         binary = correct_edges(outside_points, binary, max_distance=20)
