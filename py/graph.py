@@ -410,6 +410,13 @@ def plotVerticalLine(experiments, output_path):
         for key, value in all_mean_data.items():
             mean_data = value / max_roi_count
             writer.writerow([key] + [mean_data[i] for i in range(len(mean_data))])
+    
+    if max_h2b_count > 0:
+        with open(output_path / "h2b_depth.csv", "w", newline='') as f:
+            writer = csv.writer(f)
+            for key, value in all_h2b_data.items():
+                mean_data = value / max_h2b_count
+                writer.writerow([key] + [mean_data[i] for i in range(len(mean_data))])
         
 
     # write each animal's area for each roi
