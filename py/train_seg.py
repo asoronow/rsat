@@ -28,19 +28,23 @@ def refine_mask(mask):
 
 def get_axon_mask(image, model_path="./best.ckpt"):
     assert os.path.exists(model_path), f"Model path {model_path} does not exist. Did you download the model?"
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # check for mps device
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
     segformer_finetuner = SegformerFinetuner.load_from_checkpoint(
     model_path,
     id2label={
         0: "background",
         1: "axon",
         },
-    )
+    ).to(device)
 
     image = equalize_adapthist(np.array(image), clip_limit=0.0005)
     image = (image * 255).astype(np.uint8)
     image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
     image_array = np.array(image)
-    
+
     tiles = []
     tile_indices = []
 
@@ -83,7 +87,8 @@ def get_axon_mask(image, model_path="./best.ckpt"):
             for (i, j), tile in zip(tile_indices, tiles):
                 tile = Image.fromarray(tile)
                 encoded_inputs = feature_extractor(tile, return_tensors="pt")
-                pixel_values = encoded_inputs["pixel_values"].to("mps")
+                
+                pixel_values = encoded_inputs["pixel_values"].to(device)
                 outputs = segformer_finetuner(pixel_values)
                 logits = outputs[0]
                 upsampled_logits = F.interpolate(
