@@ -10,4 +10,6 @@ __pycache__
 *.png
 .DS_Store
 *.pth
+*.ckpt
 sam
+py/lightning_logs

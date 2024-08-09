@@ -2,13 +2,12 @@ import numpy as np
 import os
 import pickle
 from pathlib import Path
-import traceback
 import matplotlib.pyplot as plt
-from skimage.morphology import remove_small_objects
 import cv2
-from skimage.filters import gaussian, sobel, threshold_triangle
-from scipy.ndimage import  binary_dilation, binary_closing
-def correct_edges(outside_points, binary_image, max_distance=20):
+from scipy.ndimage import  binary_dilation
+from skimage.exposure import equalize_adapthist
+from train_seg import get_axon_mask
+def correct_edges(outside_points, binary_image, iterations=5):
     """
     Fast version of correct_edges function.
 
@@ -25,7 +24,7 @@ def correct_edges(outside_points, binary_image, max_distance=20):
     mask[tuple(zip(*outside_points))] = 1
 
     # Dilate the mask
-    dilated_mask = binary_dilation(mask, iterations=max_distance)
+    dilated_mask = binary_dilation(mask, structure=np.ones((3, 3)), iterations=iterations)
 
     # Remove edge points directly from the binary image
     binary_image[dilated_mask == 1] = 0
@@ -119,50 +118,21 @@ class ROI:
             y, x = vert[0] - min_y, vert[1] - min_x
             image[y, x] = self.intensity[vert]
             mask[y, x] = 1
-        # Apply contrast and brightness adjustments
-        image = np.clip(tuned_params["contrast"] * image + tuned_params["brightness"], 0, 255).astype(np.uint8)
-        image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX)
-        smoothed = gaussian(image, sigma=tuned_params["sigma"])
-        edges = sobel(smoothed)
-        edges = (edges - edges.min()) / (edges.max() - edges.min())
-        binary = edges > threshold_triangle(edges)
-        binary = remove_small_objects(binary)
-        # Normalize the image
+
+        # the binary mask of the axons
+        binary = get_axon_mask(image)
         outside_points = np.argwhere(mask == 0)
-        binary = correct_edges(outside_points, binary, max_distance=20)
-
-        plt.rcParams["font.size"] = 12
-        # export text
-        plt.rcParams["svg.fonttype"] = "none"
-        fig, axes = plt.subplots(ncols=3, figsize=(8, 2.7))
-        ax = axes.ravel()
-
-        ax[0].imshow(image, cmap=plt.cm.gray)
-        ax[0].set_title("Original")
-        ax[0].axis("off")
-
-        ax[1].imshow(edges, cmap=plt.cm.gray)
-        ax[1].set_title("Edge Detection")
-        ax[1].axis("off")
-
-        ax[2].imshow(binary * 255, cmap=plt.cm.gray)
-        ax[2].set_title("Thresholded")
-        ax[2].axis("off")
-
-        # make a folder to save the image
-        output_folder = Path(f"./screening/{stem[:4]}/{self.name}").resolve()
-        output_folder.mkdir(exist_ok=True, parents=True)
-        plt.tight_layout()
-        plt.savefig(f"{str(output_folder)}/{stem}_thresholded.png", dpi=600)
-        # plt.savefig(f"{str(output_folder)}/{stem}_thresholded.svg", format="svg", dpi=600)
-        plt.close()
-
+        binary = correct_edges(outside_points, binary)
         x_range = max_x - min_x
         y_range = max_y - min_y
-        image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+        image = (equalize_adapthist(image, clip_limit=0.0005) * 255).astype(np.uint8)
+
         colored_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
         colored_image[binary == 1] = (0, 0, 255)
-        cv2.imwrite(f"{str(output_folder)}/{stem}_axon_mask.png", colored_image)
+        output_folder = Path(f"./screening/{stem[:4]}/{self.name}").resolve()
+        output_folder.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(f"{str(output_folder)}/{stem}.png", colored_image)
 
         # Normalize the coordinates to fit into a 101x101 grid
         normalized_mask = np.zeros((101, 101), dtype=np.uint8)
@@ -170,8 +140,7 @@ class ROI:
             y, x = vert[0] - min_y, vert[1] - min_x
             norm_y, norm_x = int(y / y_range * 100), int(x / x_range * 100)
             if 0 < norm_y < 100 and 0 < norm_x < 100:
-                normalized_mask[norm_y, norm_x] += 1 if (binary[y, x] == 1) else 0
-        # cv2.imwrite(f"{str(output_folder)}/{stem}_colorized.png", image)
+                normalized_mask[norm_y, norm_x] += 1 if (binary[y, x] > 0) else 0
 
         # dump intensity data to save memor
         self.intensity = None
