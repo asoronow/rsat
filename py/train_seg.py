@@ -13,17 +13,18 @@ from torch.nn import functional as F
 import torch
 from torch import nn
 from matplotlib import pyplot as plt
+import matplotlib.cm as cm
 import numpy as np
 from pathlib import Path
 import argparse
 import cv2
+from sklearn.metrics import precision_score, recall_score
+
 
 def refine_mask(mask):
-    cleaned_mask = binary_closing(mask, disk(3)).astype(np.uint8)
-    cleaned_mask = skeletonize(cleaned_mask).astype(np.uint8)
-    cleaned_mask = binary_dilation(cleaned_mask, disk(1)).astype(np.uint8)
+    cleaned_mask = binary_closing(mask, disk(5)).astype(np.uint8)
     # cleaned_mask = skeletonize(cleaned_mask).astype(np.uint8)
-    
+    cleaned_mask = binary_dilation(cleaned_mask, disk(1)).astype(np.uint8)
     return cleaned_mask
 
 def get_axon_mask(image, model_path="./best.ckpt"):
@@ -40,7 +41,7 @@ def get_axon_mask(image, model_path="./best.ckpt"):
         },
     ).to(device)
 
-    image = equalize_adapthist(np.array(image), clip_limit=0.0005)
+    image = equalize_adapthist(np.array(image), clip_limit=0.003)
     image = (image * 255).astype(np.uint8)
     image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
     image_array = np.array(image)
@@ -48,7 +49,7 @@ def get_axon_mask(image, model_path="./best.ckpt"):
     tiles = []
     tile_indices = []
 
-    step_size = 256
+    step_size = 128
     tile_size = 256
 
     height, width = image_array.shape[:2]
@@ -111,30 +112,6 @@ def get_axon_mask(image, model_path="./best.ckpt"):
             mask = mask[:-pad_y,:]
 
     return mask
-        
-
-def dice_loss(pred, target, smooth=1.0):
-    # For multi-class segmentation, apply softmax and keep the probabilities
-    if pred.size(1) > 1:
-        pred = F.softmax(pred, dim=1)
-        # Assuming we're interested in the second class (e.g., axon)
-        pred = pred[:, 1, :, :]  # Select the class of interest
-    else:
-        pred = torch.sigmoid(pred)  # For binary classification, use sigmoid
-    
-    # Flatten the tensors
-    pred = pred.contiguous().view(-1)
-    target = target.contiguous().view(-1).float()
-
-    # If the target mask is uint8 and uses 255 for the masked pixels, convert to binary
-    if target.max() > 1:
-        target = target / 255.0  # Normalize to 0 and 1
-
-    # Compute Dice Coefficient
-    intersection = (pred * target).sum()
-    dice = (2.0 * intersection + smooth) / (pred.sum() + target.sum() + smooth)
-
-    return 1 - dice
     
 class SegformerFinetuner(pl.LightningModule):
     def __init__(self, id2label, train_dataloader=None, class_weights=None, val_dataloader=None, test_dataloader=None, metrics_interval=10, dice_weight=0.25):
@@ -169,12 +146,19 @@ class SegformerFinetuner(pl.LightningModule):
         outputs = self.model(pixel_values=images, labels=masks)
         return(outputs)
     
+    
+    def compute_loss(self, logits, masks):
+        loss = F.cross_entropy(logits, masks, weight=torch.tensor(self.class_weights).to("mps"))
+        return(loss)
+        
+
     def training_step(self, batch, batch_nb):
         images, masks = batch['pixel_values'], batch['labels']
         
         outputs = self(images, masks)
     
-        loss, logits = outputs[0], outputs[1]
+        logits = outputs[1]
+
         
         upsampled_logits = nn.functional.interpolate(
             logits, 
@@ -182,6 +166,8 @@ class SegformerFinetuner(pl.LightningModule):
             mode="bilinear", 
             align_corners=False
         )
+
+        loss = self.compute_loss(upsampled_logits, masks)
 
 
         predicted = upsampled_logits.argmax(dim=1)        
@@ -212,7 +198,8 @@ class SegformerFinetuner(pl.LightningModule):
         
         outputs = self(images, masks)
         
-        loss, logits = outputs[0], outputs[1]
+        logits = outputs[1]
+
         
         upsampled_logits = nn.functional.interpolate(
             logits, 
@@ -221,6 +208,8 @@ class SegformerFinetuner(pl.LightningModule):
             align_corners=False
         )
         
+        loss = self.compute_loss(upsampled_logits, masks)
+
         predicted = upsampled_logits.argmax(dim=1)
 
         self.validation_step_outputs.append(loss)
@@ -287,7 +276,7 @@ class SemanticSegmentationDataset(Dataset):
     def __getitem__(self, idx):
         
         image = Image.open(os.path.join(self.root_dir, "images", self.images[idx]))
-        image = equalize_adapthist(np.array(image), clip_limit=0.03)
+        image = equalize_adapthist(np.array(image), clip_limit=0.0005)
         # cast back to int8
         image = (image * 255).astype(np.uint8)
         image = Image.fromarray(image).convert('RGB')
@@ -298,12 +287,11 @@ class SemanticSegmentationDataset(Dataset):
         segmentation_map[segmentation_map == 255] = 1
 
         # Dilate
-        segmentation_map = binary_dilation(segmentation_map, disk(5))
+        segmentation_map = binary_dilation(segmentation_map, disk(2))
 
         # Conver to uint8
         segmentation_map = segmentation_map.astype(np.uint8)
         segmentation_map = Image.fromarray(segmentation_map)
-
         encoded_inputs = self.feature_extractor(image, segmentation_map, return_tensors="pt")
 
         for k,v in encoded_inputs.items():
@@ -357,7 +345,7 @@ if __name__ == "__main__":
             train_dataloader=train_dataloader, 
             val_dataloader=val_dataloader, 
             metrics_interval=2,
-            class_weights=[0.05, 0.95],
+            class_weights=[0.01, 0.99],
         )
 
         trainer.fit(segformer_finetuner)
@@ -368,7 +356,7 @@ if __name__ == "__main__":
             val_dataloader=val_dataloader,
             train_dataloader=train_dataloader,
             metrics_interval=2,
-            class_weights=[0.05, 0.95],
+            class_weights=[0.005, 0.995],
         )
 
         color_map = {
@@ -468,31 +456,31 @@ if __name__ == "__main__":
 
         print(f"Tiles: {len(tiles)}")
 
-    if len(tiles) > 0:
+        if len(tiles) > 0:
+            
+            mask = np.zeros((image_array.shape[0], image_array.shape[1]), dtype=np.uint8)
+            
+            feature_extractor = SegformerImageProcessor()
+            
+            with torch.no_grad():
+                for (i, j), tile in zip(tile_indices, tiles):
+                    tile = Image.fromarray(tile)
+                    encoded_inputs = feature_extractor(tile, return_tensors="pt")
+                    pixel_values = encoded_inputs["pixel_values"].to("mps")
+                    outputs = segformer_finetuner(pixel_values)
+                    logits = outputs[0]
+                    upsampled_logits = F.interpolate(
+                        logits, 
+                        size=(tile_size, tile_size), 
+                        mode="bilinear", 
+                        align_corners=False
+                    )
+                    predicted = upsampled_logits.argmax(dim=1).cpu().numpy().squeeze()
+                    mask[i:i+tile_size, j:j+tile_size] = predicted
+            
+            # mask = refine_mask(mask)
+            mask *= 255
         
-        mask = np.zeros((image_array.shape[0], image_array.shape[1]), dtype=np.uint8)
-        
-        feature_extractor = SegformerImageProcessor()
-        
-        with torch.no_grad():
-            for (i, j), tile in zip(tile_indices, tiles):
-                tile = Image.fromarray(tile)
-                encoded_inputs = feature_extractor(tile, return_tensors="pt")
-                pixel_values = encoded_inputs["pixel_values"].to("mps")
-                outputs = segformer_finetuner(pixel_values)
-                logits = outputs[0]
-                upsampled_logits = F.interpolate(
-                    logits, 
-                    size=(tile_size, tile_size), 
-                    mode="bilinear", 
-                    align_corners=False
-                )
-                predicted = upsampled_logits.argmax(dim=1).cpu().numpy().squeeze()
-                mask[i:i+tile_size, j:j+tile_size] = predicted
-        
-        mask = refine_mask(mask)
-
-        mask *= 255
         if args.check_mask:
             # Load and preprocess the real mask
             real_mask = Image.open(args.check_mask).convert('L')
@@ -506,23 +494,51 @@ if __name__ == "__main__":
             real_mask_bool = (real_mask > 0).astype(bool)
             mask_bool = (mask > 0).astype(bool)
 
-            # Crop bottom 200 px
-            real_mask_bool = real_mask_bool
-            mask_bool = mask_bool
+            # Perform dilation
+            real_mask_bool = binary_dilation(real_mask_bool, disk(2)).astype(bool)
+            mask_bool = binary_erosion(mask_bool, disk(1)).astype(bool)
+            # mask_bool = skeletonize(mask_bool).astype(bool)
+            quant_fig, quant_ax = plt.subplots(1, 1)
 
-            real_mask_bool = refine_mask(real_mask_bool)
+            recalls = []
+            accuracies = []
+            for (i, j) in tile_indices:
+                real_mask_tile = real_mask[i:i+tile_size, j:j+tile_size]
+                mask_tile = mask[i:i+tile_size, j:j+tile_size]
 
-            # Compute true positive and false positive rate
+                # compute the tp, fp, fn, and tn
+                tp = np.logical_and(real_mask_tile, mask_tile).sum()
+                fp = np.logical_and(np.logical_not(real_mask_tile), mask_tile).sum()
+                fn = np.logical_and(real_mask_tile, np.logical_not(mask_tile)).sum()
+                tn = np.logical_and(np.logical_not(real_mask_tile), np.logical_not(mask_tile)).sum()
+
+                precision_tile = tp / (tp + fn)
+                accuracy_tile = (tp + tn) / (tp + fp + fn + tn)
+
+                recalls.append(precision_tile)
+                accuracies.append(accuracy_tile)
+
+            
+            color_scale = [np.average([a,p]) for a,p in zip(accuracies, recalls)]
+            quant_ax.set_ylim([0, 1])
+            quant_ax.set_xlim([0, 1])
+            quant_ax.scatter(recalls, accuracies, color=cm.get_cmap('viridis')(color_scale), marker="o", edgecolor="black")
+            quant_ax.set_title("Recall vs. Accuracy")
+            quant_ax.set_ylabel("Fraction of mask recovered")
+            quant_ax.set_xlabel("Accuracy of mask recovery")
+
+            quant_fig.colorbar(quant_ax.collections[0], ax=quant_ax)
+
+            quant_fig.tight_layout()
+            quant_fig.savefig("quantitative_results.png")
+
             tp = np.logical_and(real_mask_bool, mask_bool).sum()
-            fp = np.logical_and(real_mask_bool, np.logical_not(mask_bool)).sum()
-            fn = np.logical_and(np.logical_not(real_mask_bool), mask_bool).sum()
+            fp = np.logical_and(np.logical_not(real_mask_bool), mask_bool).sum()
+            fn = np.logical_and(real_mask_bool, np.logical_not(mask_bool)).sum()
             tn = np.logical_and(np.logical_not(real_mask_bool), np.logical_not(mask_bool)).sum()
 
             tpr = tp / (tp + fn)
             fpr = fp / (fp + tn)
-
-            print(f"True Positive Rate: {tpr}")
-            print(f"False Positive Rate: {fpr}")
 
             # F1 score
             f1 = 2 * (tpr * fpr) / (tpr + fpr)
@@ -533,11 +549,11 @@ if __name__ == "__main__":
             print(f"MSE: {mse}")
 
             # Precision
-            precision = tp / (tp + fp)
+            precision = precision_score(real_mask_bool.flatten(), mask_bool.flatten(), average="weighted")
             print(f"Precision: {precision}")
 
             # Recall
-            recall = tp / (tp + fn)
+            recall = recall_score(real_mask_bool.flatten(), mask_bool.flatten(), average="weighted")
             print(f"Recall: {recall}")
 
             # Accuracy
@@ -548,7 +564,6 @@ if __name__ == "__main__":
         # calculate padding
         pad_x = (real_mask_bool.shape[1] - original_shape[1])
         pad_y = (real_mask_bool.shape[0] - original_shape[0])
-        print(f"Padding: {pad_x}, {pad_y}")
 
         if pad_x > 0:
             mask_bool = mask_bool[:,:-pad_x]
@@ -558,9 +573,8 @@ if __name__ == "__main__":
             mask_bool = mask_bool[:-pad_y,:]
             real_mask_bool = real_mask_bool[:-pad_y,:]
             image_array = image_array[:-pad_y,:,:]
-       
 
-        image_array = (equalize_adapthist(np.array(image_array), clip_limit=0.03) * 255).astype(np.uint8)
+        image_array = (equalize_adapthist(np.array(image_array), clip_limit=0.0005) * 255).astype(np.uint8)
         panel_one = image_array.copy()
         panel_two = image_array.copy()
         panel_three = image_array.copy()
@@ -585,10 +599,13 @@ if __name__ == "__main__":
 
         ax[3].set_title("Overlap Result")
         ax[3].imshow(panel_three)
-        
+
         # Save as svg
         fig.savefig("segmentation_result.svg")
 
         # save mask
-        mask = Image.fromarray(mask) 
-        mask.save("segmentation_result.png")
+        mask = cv2.cvtColor(mask_bool.astype(np.uint8) * 255, cv2.COLOR_GRAY2BGR)
+        colored_overlay = np.zeros_like(mask)
+        colored_overlay[real_mask_bool > 0] = (0, 255, 0)
+        mask = cv2.addWeighted(mask, 0.5, colored_overlay, 0.5, 0)
+        cv2.imwrite("segmentation_result.png", mask)
