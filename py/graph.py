@@ -461,7 +461,7 @@ def process_roi(roi_path, tuned_parameters, args):
                                             h2b_centers = get_centers(prediction[0].boxes)
                                             roi.calculate_h2b_distribution(h2b_centers)
 
-            roi.create_axon_mask(tuned_parameters) # pass in tuned parameters
+            roi.create_axon_mask(clip_limit=args.clip_limit) # pass in tuned parameters
             return animal_name, roi.name.lower(), roi
         
     except Exception as e:
@@ -502,6 +502,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, help="Output directory")
     parser.add_argument("--counts", type=str, help="Path to counts csv file for normalization")
     parser.add_argument("--tune", type=str, help="Path to a pkl to tune parameters for normalization")
+    parser.add_argument("--clip_limit", type=float, help="Clip limit for CLAHE", default=0.003)
     parser.add_argument("--predictions", type=str, help="Path to predictions pkls file for integration of depth for h2b")
     parser.add_argument(
         "--regraph",

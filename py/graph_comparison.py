@@ -6,7 +6,7 @@ import numpy as np
 from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
 from skimage.exposure import equalize_adapthist
-from skimage.morphology import binary_dilation, binary_erosion, disk
+from skimage.morphology import binary_dilation, binary_erosion, disk, skeletonize
 from sklearn.metrics import precision_score, recall_score
 
 def calculate_metrics(rsat_mask, human_masks):
@@ -40,6 +40,8 @@ if __name__ == "__main__":
     files = os.listdir(args.human_masks)
     human_masks = []
     for file in files:
+        if not file.endswith(".png"):
+            continue
         mask = cv2.imread(os.path.join(args.human_masks, file), cv2.IMREAD_GRAYSCALE)
         mask = binary_dilation(mask, disk(2)).astype(np.uint8) * 255
         human_masks.append(mask)
@@ -47,7 +49,7 @@ if __name__ == "__main__":
     rsat_mask = get_axon_mask(image)
     rsat_mask = binary_erosion(rsat_mask, disk(2)).astype(np.uint8) * 255
 
-    eq_image = equalize_adapthist(image, clip_limit=0.05)
+    eq_image = equalize_adapthist(image, clip_limit=0.005)
 
     # Create a color overlay for the masks
     human_mask1_color = np.zeros((human_masks[0].shape[0], human_masks[0].shape[1], 3), dtype=np.uint8)
@@ -71,6 +73,12 @@ if __name__ == "__main__":
     ax1 = fig.add_subplot(gs[0, 0])
     ax1.imshow(eq_image, cmap="gray")
     ax1.set_title("Equalized Image")
+
+    micron_to_px = 0.45399967067 * 2.6
+
+    # Draw 50 um scale bar bottom left
+    ax1.plot([25, 25 + 100 * micron_to_px], [image.shape[0] - 50] * 2, color="white")
+    ax1.text(32.5, image.shape[0] - 57, "100 um", color="white", fontsize=8)
 
     ax2 = fig.add_subplot(gs[0, 1])
     ax2.imshow(rsat_mask_color)
@@ -100,7 +108,7 @@ if __name__ == "__main__":
         color=["blue", "orange", "green"]
     )
     ax7.set_title("Precision")
-    ax7.set_ylim([0.95, 1])
+    ax7.set_ylim([0.5, 1])
     ax7.tick_params(axis='x', rotation=90)
 
     # Add the precision values above each bar
@@ -116,7 +124,7 @@ if __name__ == "__main__":
         color=["blue", "orange", "green"]
     )
     ax8.set_title("Recall")
-    ax8.set_ylim([0.95, 1])
+    ax8.set_ylim([0.5, 1])
     ax8.tick_params(axis='x', rotation=90)
 
     # Add the recall values above each bar

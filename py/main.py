@@ -99,7 +99,7 @@ class ROI:
         # return the total area of the ROI
         return len(self.intensity)
     
-    def create_axon_mask(self, tuned_params):
+    def create_axon_mask(self, clip_limit):
         """Identify axons in the ROI"""
         verts = list(self.intensity.keys())
         # Find the bounding box for the ROI
@@ -120,7 +120,7 @@ class ROI:
             mask[y, x] = 1
 
         # the binary mask of the axons
-        binary = get_axon_mask(image)
+        binary = get_axon_mask(image, clip_limit=clip_limit)
         outside_points = np.argwhere(mask == 0)
         binary = correct_edges(outside_points, binary)
         x_range = max_x - min_x

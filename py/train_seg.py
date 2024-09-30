@@ -27,7 +27,7 @@ def refine_mask(mask):
     cleaned_mask = binary_dilation(cleaned_mask, disk(1)).astype(np.uint8)
     return cleaned_mask
 
-def get_axon_mask(image, model_path="./best.ckpt"):
+def get_axon_mask(image, model_path="./best.ckpt", clip_limit=0.003):
     assert os.path.exists(model_path), f"Model path {model_path} does not exist. Did you download the model?"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # check for mps device
@@ -41,7 +41,7 @@ def get_axon_mask(image, model_path="./best.ckpt"):
         },
     ).to(device)
 
-    image = equalize_adapthist(np.array(image), clip_limit=0.003)
+    image = equalize_adapthist(np.array(image), clip_limit=clip_limit)
     image = (image * 255).astype(np.uint8)
     image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
     image_array = np.array(image)
