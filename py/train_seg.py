@@ -8,7 +8,7 @@ from transformers import SegformerForSemanticSegmentation
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 import evaluate
-from skimage.morphology import binary_dilation, skeletonize, binary_erosion, binary_closing, disk
+from skimage.morphology import binary_dilation, binary_erosion, binary_closing, disk
 from torch.nn import functional as F
 import torch
 from torch import nn
@@ -22,17 +22,38 @@ from sklearn.metrics import precision_score, recall_score
 
 
 def refine_mask(mask):
-    cleaned_mask = binary_closing(mask, disk(5)).astype(np.uint8)
+    cleaned_mask = binary_closing(mask, disk(2, decomposition="crosses")).astype(np.uint8)
+    cleaned_mask = binary_erosion(cleaned_mask, disk(2)).astype(np.uint8)
     # cleaned_mask = skeletonize(cleaned_mask).astype(np.uint8)
-    cleaned_mask = binary_dilation(cleaned_mask, disk(1)).astype(np.uint8)
     return cleaned_mask
 
-def get_axon_mask(image, model_path="./best.ckpt", clip_limit=0.003):
+
+def calculate_intensities(input_folder):
+    input_folder = Path(input_folder).expanduser()
+    average_intensity = 0
+    total_pixels = 0
+    total_images = 0
+    std_intensity = 0
+    for file in os.listdir(input_folder):
+        print(f"Processing {file}")
+        if file.endswith(".png"):
+            total_images += 1
+            img = np.array(Image.open(input_folder / file))
+            avg = np.mean(img)
+            average_intensity += avg * img.size
+            total_pixels += img.size
+            std_intensity += np.std(img) ** 2 * img.size
+    average_intensity /= total_pixels
+    std_intensity = np.sqrt(std_intensity / total_pixels)
+    return average_intensity, std_intensity
+
+def get_axon_mask(image, model_path="./best.ckpt", clip_limit=0.003) -> np.ndarray:
     assert os.path.exists(model_path), f"Model path {model_path} does not exist. Did you download the model?"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # check for mps device
     if torch.backends.mps.is_available():
         device = torch.device("mps")
+    
     segformer_finetuner = SegformerFinetuner.load_from_checkpoint(
     model_path,
     id2label={
@@ -41,8 +62,10 @@ def get_axon_mask(image, model_path="./best.ckpt", clip_limit=0.003):
         },
     ).to(device)
 
-    image = equalize_adapthist(np.array(image), clip_limit=clip_limit)
-    image = (image * 255).astype(np.uint8)
+    # image = equalize_adapthist(np.array(image), clip_limit=clip_limit)
+    # normalize to training mean and std
+    image = ((np.array(image) - 16.8942389109778 ) / 4.092811729385156)
+    image = image.astype(np.uint8)
     image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
     image_array = np.array(image)
 
@@ -313,6 +336,20 @@ if __name__ == "__main__":
 
     feature_extractor = SegformerImageProcessor()
     feature_extractor.size = 256
+    # debug for intensities
+    # print(calculate_intensities("~/Projects/rsat-segment/datasets/train/images"))
+    # dense_sample = Image.open(Path("~/Downloads/M764_s070.ome-2.png").expanduser())
+    # dense_sample_mask = get_axon_mask(dense_sample)
+    # print(dense_sample_mask.shape, dense_sample_mask.sum())
+    # dense_sample_mask = np.expand_dims(dense_sample_mask, axis=2)
+    # # stack 3
+    # dense_sample_mask = np.concatenate((dense_sample_mask * 255, np.zeros_like(dense_sample_mask), np.zeros_like(dense_sample_mask)), axis=2)
+    # # make mask red
+    # dense_sample = cv2.cvtColor(np.array(dense_sample), cv2.COLOR_RGB2BGR)
+    # # overlay mask on image
+    # dense_sample = cv2.addWeighted(dense_sample, 0.8, dense_sample_mask, 0.2, 0)
+    # cv2.imshow("Dense sample", dense_sample)
+    # cv2.waitKey(0)
 
     train_dataset = SemanticSegmentationDataset("~/Projects/rsat-segment/datasets/train/", feature_extractor)
     val_dataset = SemanticSegmentationDataset("~/Projects/rsat-segment/datasets/validate/", feature_extractor)

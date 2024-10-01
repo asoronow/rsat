@@ -126,6 +126,7 @@ class ROI:
         x_range = max_x - min_x
         y_range = max_y - min_y
 
+        # post-hoc equalization for visualization
         image = (equalize_adapthist(image, clip_limit=0.0005) * 255).astype(np.uint8)
 
         colored_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
