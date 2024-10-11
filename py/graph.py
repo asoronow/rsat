@@ -461,7 +461,7 @@ def process_roi(roi_path, tuned_parameters, args):
                                             h2b_centers = get_centers(prediction[0].boxes)
                                             roi.calculate_h2b_distribution(h2b_centers)
 
-            roi.create_axon_mask(clip_limit=args.clip_limit) # pass in tuned parameters
+            roi.create_axon_mask(clip_limit=args.clip_limit, image_only=args.image_only) # pass in tuned parameters
             return animal_name, roi.name.lower(), roi
         
     except Exception as e:
@@ -504,6 +504,7 @@ if __name__ == "__main__":
     parser.add_argument("--tune", type=str, help="Path to a pkl to tune parameters for normalization")
     parser.add_argument("--clip_limit", type=float, help="Clip limit for CLAHE", default=0.003)
     parser.add_argument("--predictions", type=str, help="Path to predictions pkls file for integration of depth for h2b")
+    parser.add_argument("--image_only", action="store_true", help="Only output images per roi for manual inspection", default=False)
     parser.add_argument(
         "--regraph",
         action="store_true",
@@ -580,6 +581,12 @@ if __name__ == "__main__":
     c = 0
     with Pool(8) as pool:
         results = pool.starmap(process_roi, [(roi_path, TUNED_PARAMETERS, args) for roi_path in roi_paths])
+
+    print(f"Processed {num_rois} ROIs")
+
+    if args.image_only:
+        # we are done if we only want to output images
+        quit()
 
     # Add to experiments dict under age group (args.input) and animal name
     for animal_name, roi_name, roi in results:

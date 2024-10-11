@@ -98,8 +98,8 @@ class ROI:
     def total_area(self):
         # return the total area of the ROI
         return len(self.intensity)
-    
-    def create_axon_mask(self, clip_limit):
+
+    def create_axon_mask(self, clip_limit, image_only=False):
         """Identify axons in the ROI"""
         verts = list(self.intensity.keys())
         # Find the bounding box for the ROI
@@ -118,6 +118,12 @@ class ROI:
             y, x = vert[0] - min_y, vert[1] - min_x
             image[y, x] = self.intensity[vert]
             mask[y, x] = 1
+
+        if image_only:
+            output_path = Path(f"./manual/{stem[:4]}/{self.name}")
+            output_path.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(f"{str(output_path / stem)}.tif", image)
+            return
 
         # the binary mask of the axons
         binary = get_axon_mask(image, clip_limit=clip_limit)
