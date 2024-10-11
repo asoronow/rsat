@@ -120,6 +120,8 @@ class ROI:
             mask[y, x] = 1
 
         if image_only:
+            self.intensity = None
+            self.verts = None
             output_path = Path(f"./manual/{stem[:4]}/{self.name}")
             output_path.mkdir(parents=True, exist_ok=True)
             cv2.imwrite(f"{str(output_path / stem)}.tif", image)
@@ -149,7 +151,7 @@ class ROI:
             if 0 < norm_y < 100 and 0 < norm_x < 100:
                 normalized_mask[norm_y, norm_x] += 1 if (binary[y, x] > 0) else 0
 
-        # dump intensity data to save memor
+        # dump intensity data to save memory
         self.intensity = None
         self.verts = None
         self.mask = normalized_mask
